@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:cryptography/cryptography.dart';
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
@@ -59,6 +60,12 @@ class CircleUpdater {
     return UpdateInfo(version, download, sha);
   }
 
+  // Stream the digest: a full installer must not be loaded into RAM.
+  static Future<String> sha256File(File file) async {
+    final digest = await crypto.sha256.bind(file.openRead()).first;
+    return digest.toString();
+  }
+
   Future<File> downloadVerified(UpdateInfo info) async {
     final dir = await getTemporaryDirectory();
     final target = File('${dir.path}${Platform.pathSeparator}circle-${info.version}.exe');
@@ -78,8 +85,7 @@ class CircleUpdater {
       } finally {
         await sink.close();
       }
-      final hash = await Sha256().hashStream(partial.openRead());
-      final digest = hash.bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+      final digest = await sha256File(partial);
       if (digest != info.sha256) throw const FormatException('Update checksum mismatch');
       if (await target.exists()) await target.delete();
       return await partial.rename(target.path);

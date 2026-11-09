@@ -1,4 +1,4 @@
-# Circle Windows Native 0.3.0 (исходный GitHub-проект)
+# Circle Windows Native 0.3.1 (исходный GitHub-проект)
 
 **Твой круг. Твои люди.**
 
@@ -9,7 +9,7 @@
 1. На GitHub создайте пустой **private** или public репозиторий, например `circle-windows`.
 2. **Распакуйте ZIP** и загрузите *содержимое каталога* в корень репозитория. ZIP как единственный файл загружать нельзя: GitHub Actions не распаковывает его автоматически.
 3. В разделе **Actions** разрешите запуск workflow `Circle Windows build` (если GitHub запросит подтверждение). Workflow запустится при загрузке в `main`, либо запустите его вручную через **Run workflow**.
-4. В успешном запуске откройте **Artifacts → Circle-Windows-Setup**. Скачайте ZIP с `Circle_Windows_0.3.0_Setup.exe` внутри. Дополнительно доступен портативный комплект `Circle-Windows-Portable`.
+4. В успешном запуске откройте **Artifacts → Circle-Windows-Setup**. Скачайте ZIP с `Circle_Windows_0.3.1_Setup.exe` внутри. Дополнительно доступен портативный комплект `Circle-Windows-Portable`.
 5. Установите приложение на Windows 10/11 x64. В нём указан сервер по умолчанию `https://acircle.ru` — замените адрес на ваш, если нужен другой.
 
 Сборка выполняется на облачном `windows-latest` runner, локальная установка Flutter не обязательна. GitHub **не создаёт установщик из ZIP автоматически**: ему нужен исходный репозиторий с файлом `.github/workflows/windows.yml`.
@@ -58,7 +58,7 @@ powershell -ExecutionPolicy Bypass -File .\build-installer.ps1
 ```powershell
 python -m pip install cryptography
 python tool/sign_release.py --generate-key --private-key release-private-key.pem
-python tool/sign_release.py --private-key release-private-key.pem --package dist/Circle_Windows_0.3.0_Setup.exe --version 0.3.0 --url https://example.com/Circle_Windows_0.3.0_Setup.exe --output update-manifest.json
+python tool/sign_release.py --private-key release-private-key.pem --package dist/Circle_Windows_0.3.1_Setup.exe --version 0.3.1 --url https://example.com/Circle_Windows_0.3.1_Setup.exe --output update-manifest.json
 ```
 
 Храните приватный ключ вне GitHub репозитория. Запуск нового установщика в текущей реализации требует согласия пользователя; до следующего релиза нужно проверить поведение установщика при закрытии приложения.
@@ -79,3 +79,14 @@ python tool/sign_release.py --private-key release-private-key.pem --package dist
 - Токен не добавляется к URL картинок и файлов, а пересылается в заголовке Authorization.
 - Скачанные обновления проверяются Ed25519 и SHA-256.
 - Архив не содержит секретов LiveKit, паролей пользователей или базы данных.
+
+
+## Исправление CI для 0.3.1
+
+- Исправлена ошибка `undefined_method` в `lib/updater.dart`: `Sha256.hashStream` в `cryptography` отсутствует.
+- Для хеширования установщика по частям применяется потоковый `package:crypto` (`sha256.bind(file.openRead())`).
+- Добавлен тест SHA-256 для известного вектора `abc`.
+- Устранены замечания `curly_braces_in_flow_control_structures` и `use_build_context_synchronously`, показанные в журнале GitHub Actions.
+- Версия синхронизирована в приложении, `pubspec.yaml`, Inno Setup и Windows workflow.
+
+**Ограничение проверки:** этот архив проходит проверку целостности ZIP и статическую проверку согласованности файлов. Фактический `flutter analyze`, `flutter test` и сборку Windows выполнит GitHub Actions; в текущем окружении Flutter SDK отсутствует.

@@ -12,7 +12,7 @@ const gold = Color(0xffc6a15b), back = Color(0xff101114), panel = Color(0xff1d1e
 const secure = FlutterSecureStorage();
 const updateManifest = String.fromEnvironment('CIRCLE_UPDATE_URL');
 const updatePublicKey = String.fromEnvironment('CIRCLE_UPDATE_PUBLIC_KEY');
-const appVersion = '0.3.0';
+const appVersion = '0.3.1';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
@@ -98,7 +98,12 @@ class LoginScreen extends StatefulWidget {
 }
 class _LoginScreenState extends State<LoginScreen> {
   final host=TextEditingController(text:'https://acircle.ru'),user=TextEditingController(),pass=TextEditingController(),totp=TextEditingController();
-  @override void dispose(){for(final c in [host,user,pass,totp])c.dispose();super.dispose();}
+  @override void dispose(){
+    for(final c in [host,user,pass,totp]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
   @override Widget build(BuildContext context)=> Scaffold(body:Center(child:ConstrainedBox(constraints:const BoxConstraints(maxWidth:420),child:Card(child:Padding(padding:const EdgeInsets.all(26),child:Column(mainAxisSize:MainAxisSize.min,children:[
     const Text('◉ CIRCLE',style:TextStyle(color:gold,fontSize:30,fontWeight:FontWeight.bold)),
     const SizedBox(height:6),const Text('Твой круг. Твои люди.'),const SizedBox(height:26),
@@ -141,12 +146,12 @@ class FeedScreen extends StatelessWidget {
   @override Widget build(BuildContext context)=>Column(children:[
     if(route=='feed') SizedBox(height:132,child:StoriesStrip(api)),
     if(route=='feed')Padding(padding:const EdgeInsets.all(12),child:Row(children:[FilledButton.icon(icon:const Icon(Icons.edit),label:const Text('Новая публикация'),onPressed:()async {
-      final title=await compose(context,'Заголовок публикации');if(title==null||title.isEmpty)return;
-      final content=await compose(context,'Текст публикации');if(content==null)return;
+      final title=await compose(context,'Заголовок публикации');if(!context.mounted||title==null||title.isEmpty)return;
+      final content=await compose(context,'Текст публикации');if(!context.mounted||content==null)return;
       try{await api.call('post-create',body:{'title':title,'body':content});if(context.mounted)notify(context,'Опубликовано');}catch(e){if(context.mounted)notify(context,'$e');}
     }),const SizedBox(width:12),OutlinedButton.icon(icon:const Icon(Icons.photo_library_outlined),label:const Text('С медиа'),onPressed:()async {
-      final title=await compose(context,'Заголовок публикации');if(title==null||title.isEmpty)return;
-      final body=await compose(context,'Текст публикации');if(body==null)return;
+      final title=await compose(context,'Заголовок публикации');if(!context.mounted||title==null||title.isEmpty)return;
+      final body=await compose(context,'Текст публикации');if(!context.mounted||body==null)return;
       final file=await FilePicker.platform.pickFiles(type:FileType.custom,allowedExtensions:['png','jpg','jpeg','webp','gif','mp4','webm']);if(file==null||file.files.single.path==null)return;
       try{await api.upload('post-upload',File(file.files.single.path!),field:'media',fields:{'title':title,'body':body});if(context.mounted)notify(context,'Медиа опубликовано');}catch(e){if(context.mounted)notify(context,'$e');}
     }),const SizedBox(width:12),const Text('Лента друзей и сообществ')])),
@@ -183,8 +188,8 @@ class _ProfileScreenState extends State<ProfileScreen>{late Future<Map<String,dy
     final d=s.data!,u=obj(d['user']);return ListView(padding:const EdgeInsets.all(20),children:[
       Text(label(u),style:Theme.of(context).textTheme.headlineMedium),Text('@${u['username']??''}',style:const TextStyle(color:gold)),
       const SizedBox(height:8),Text('${d['status_text']??''}'),Text('${d['bio']??''}'),
-      Align(alignment:Alignment.centerLeft,child:FilledButton.icon(onPressed:()async {final name=await compose(context,'Отображаемое имя',initial:label(u));if(name==null||name.isEmpty)return;
-        final bio=await compose(context,'О себе',initial:'${d['bio']??''}');if(bio==null)return;
+      Align(alignment:Alignment.centerLeft,child:FilledButton.icon(onPressed:()async {final name=await compose(context,'Отображаемое имя',initial:label(u));if(!context.mounted||name==null||name.isEmpty)return;
+        final bio=await compose(context,'О себе',initial:'${d['bio']??''}');if(!context.mounted||bio==null)return;
         try {await widget.api.call('profile-save',body:{'display_name':name,'bio':bio,'status_text':'${d['status_text']??''}','visibility':'${d['visibility']??'PUBLIC'}'});reload();}catch(e){if(context.mounted)notify(context,'$e');}
       },icon:const Icon(Icons.edit),label:const Text('Редактировать профиль'))),
       const Divider(),const Text('Мои публикации',style:TextStyle(fontSize:20,color:gold)),SizedBox(height:600,child:FeedScreen(widget.api,route:'profile-posts'))]);
@@ -270,7 +275,7 @@ class _StoriesStripState extends State<StoriesStrip>{
     return FutureBuilder<Map<String,dynamic>>(future:api.call('stories'),builder:(c,s)=>Row(children:[
       Padding(padding:const EdgeInsets.all(8),child:OutlinedButton.icon(icon:const Icon(Icons.add_circle_outline),label:const Text('История'),onPressed:()async {
         final file=await FilePicker.platform.pickFiles(type:FileType.custom,allowedExtensions:['jpg','jpeg','png','webp','gif','mp4','webm']);if(file==null||file.files.single.path==null)return;
-        final caption=await compose(context,'Подпись к истории');if(caption==null)return;
+        if(!mounted)return;final caption=await compose(context,'Подпись к истории');if(caption==null)return;
         try{await api.upload('story-create',File(file.files.single.path!),field:'media',fields:{'caption':caption});if(mounted)setState((){});}catch(e){if(context.mounted)notify(context,'$e');}
       })),
       Expanded(child:s.hasError?Text('${s.error}'):s.hasData?ListView(scrollDirection:Axis.horizontal,children:[for(final story in items(s.data!))
