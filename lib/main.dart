@@ -12,7 +12,7 @@ const gold = Color(0xffc6a15b), back = Color(0xff101114), panel = Color(0xff1d1e
 const secure = FlutterSecureStorage();
 const updateManifest = String.fromEnvironment('CIRCLE_UPDATE_URL');
 const updatePublicKey = String.fromEnvironment('CIRCLE_UPDATE_PUBLIC_KEY');
-const appVersion = '0.3.1';
+const appVersion = '0.3.2';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
@@ -275,7 +275,7 @@ class _StoriesStripState extends State<StoriesStrip>{
     return FutureBuilder<Map<String,dynamic>>(future:api.call('stories'),builder:(c,s)=>Row(children:[
       Padding(padding:const EdgeInsets.all(8),child:OutlinedButton.icon(icon:const Icon(Icons.add_circle_outline),label:const Text('История'),onPressed:()async {
         final file=await FilePicker.platform.pickFiles(type:FileType.custom,allowedExtensions:['jpg','jpeg','png','webp','gif','mp4','webm']);if(file==null||file.files.single.path==null)return;
-        if(!mounted)return;final caption=await compose(context,'Подпись к истории');if(caption==null)return;
+        if(!context.mounted)return;final caption=await compose(context,'Подпись к истории');if(caption==null)return;
         try{await api.upload('story-create',File(file.files.single.path!),field:'media',fields:{'caption':caption});if(mounted)setState((){});}catch(e){if(context.mounted)notify(context,'$e');}
       })),
       Expanded(child:s.hasError?Text('${s.error}'):s.hasData?ListView(scrollDirection:Axis.horizontal,children:[for(final story in items(s.data!))
