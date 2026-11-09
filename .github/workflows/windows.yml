@@ -1,0 +1,59 @@
+name: Circle Windows build
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+      - name: Generate Windows runner
+        run: flutter create --platforms=windows --project-name=circle_windows .
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Static analysis
+        run: flutter analyze
+      - name: Unit tests
+        run: flutter test
+      - name: Build native Windows exe
+        shell: pwsh
+        env:
+          CIRCLE_UPDATE_URL: ${{ vars.CIRCLE_UPDATE_URL }}
+          CIRCLE_UPDATE_PUBLIC_KEY: ${{ vars.CIRCLE_UPDATE_PUBLIC_KEY }}
+        run: |
+          $defs = @()
+          if ($env:CIRCLE_UPDATE_URL -and $env:CIRCLE_UPDATE_PUBLIC_KEY) {
+            $defs += '--dart-define=CIRCLE_UPDATE_URL=' + $env:CIRCLE_UPDATE_URL
+            $defs += '--dart-define=CIRCLE_UPDATE_PUBLIC_KEY=' + $env:CIRCLE_UPDATE_PUBLIC_KEY
+          }
+          flutter build windows --release @defs
+      - name: Build EXE installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc '/DAppVersion=0.3.0' 'installer\Circle.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Circle-Windows-Setup
+          path: dist/*.exe
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Circle-Windows-Portable
+          path: build/windows/x64/runner/Release/**
+          if-no-files-found: error
+          retention-days: 30
