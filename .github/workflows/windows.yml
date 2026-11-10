@@ -25,6 +25,8 @@ jobs:
         run: Copy-Item 'branding/circle.ico' 'windows/runner/resources/app_icon.ico' -Force
       - name: Resolve dependencies
         run: flutter pub get
+      - name: Validate source files and version
+        run: python tool/validate_package.py
       - name: Static analysis
         run: flutter analyze --no-fatal-infos
       - name: Unit tests
@@ -46,7 +48,7 @@ jobs:
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
-          & $iscc '/DAppVersion=0.4.0' 'installer\Circle.iss'
+          & $iscc '/DAppVersion=0.4.1' 'installer\Circle.iss'
           if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed' }
       - uses: actions/upload-artifact@v4
         with:
@@ -75,13 +77,13 @@ jobs:
           $installer = Get-ChildItem 'dist/*.exe' | Select-Object -First 1
           if (-not $installer) { throw 'Installer not found' }
           $tag = '${{ github.ref_name }}'
-          $expected = 'v0.4.0'
+          $expected = 'v0.4.1'
           if ($tag -ne $expected) { throw "Release tag $tag does not match app version $expected" }
           $url = "https://github.com/${{ github.repository }}/releases/download/$tag/$($installer.Name)"
           $keyFile = Join-Path $env:RUNNER_TEMP 'circle-signing-key.pem'
           [System.IO.File]::WriteAllText($keyFile, $env:CIRCLE_SIGNING_KEY)
           try {
-            python tool/sign_release.py --private-key $keyFile --package $installer.FullName --version 0.4.0 --url $url --output update-manifest.json
+            python tool/sign_release.py --private-key $keyFile --package $installer.FullName --version 0.4.1 --url $url --output update-manifest.json
             if ($LASTEXITCODE -ne 0) { throw 'Signing failed' }
             gh release create $tag $installer.FullName 'update-manifest.json' --title "Circle Windows $tag" --notes 'Native Windows release. Download the EXE installer.'
             if ($LASTEXITCODE -ne 0) { throw 'GitHub release failed' }
