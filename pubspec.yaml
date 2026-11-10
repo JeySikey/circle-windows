@@ -1,5 +1,5 @@
 name: circle_windows
-version: 0.3.2+5
+version: 0.4.0+6
 description: Native Circle desktop client for Windows, server 5.2.3
 publish_to: none
 environment:
@@ -11,8 +11,10 @@ dependencies:
   flutter_secure_storage: ^9.2.4
   url_launcher: ^6.3.1
   file_picker: ^8.1.7
-  media_kit: ^1.2.0
-  media_kit_libs_windows_audio: ^1.0.9
+  media_kit: ^1.2.6
+  media_kit_video: ^2.0.1
+  livekit_client: ^2.13.2
+  media_kit_libs_video: ^1.0.7
   record: ^6.0.0
   path_provider: ^2.1.5
   window_manager: ^0.4.3
@@ -24,3 +26,5 @@ dev_dependencies:
   flutter_lints: ^5.0.0
 flutter:
   uses-material-design: true
+  assets:
+    - assets/circle-mark.png

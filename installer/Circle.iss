@@ -1,6 +1,6 @@
 #define MyAppName "Circle"
 #ifndef AppVersion
-  #define AppVersion "0.3.2"
+  #define AppVersion "0.4.0"
 #endif
 #ifndef BuildRoot
   #define BuildRoot "..\build\windows\x64\runner\Release"
@@ -18,6 +18,7 @@ OutputBaseFilename=Circle_Windows_{#AppVersion}_Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\branding\circle.ico
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible

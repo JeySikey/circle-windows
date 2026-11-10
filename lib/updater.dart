@@ -71,9 +71,27 @@ class CircleUpdater {
     final target = File('${dir.path}${Platform.pathSeparator}circle-${info.version}.exe');
     final partial = File('${target.path}.part');
     try {
-      final request = http.Request('GET', info.download)..followRedirects = false;
-      final response = await _client.send(request).timeout(const Duration(seconds: 25));
-      if (response.statusCode != 200) throw StateError('Download HTTP ${response.statusCode}');
+      // GitHub Releases redirects to a signed HTTPS asset URL. Follow a bounded
+      // chain while refusing HTTPS downgrade or credentials in the destination.
+      var current = info.download;
+      http.StreamedResponse? response;
+      for (var hop = 0; hop < 6; hop++) {
+        final request = http.Request('GET', current)..followRedirects = false;
+        final next = await _client.send(request).timeout(const Duration(seconds: 25));
+        if (next.statusCode == 200) {response = next; break;}
+        if (![301, 302, 303, 307, 308].contains(next.statusCode)) {
+          throw StateError('Download HTTP ${next.statusCode}');
+        }
+        final location = next.headers['location'];
+        if (location == null) throw const FormatException('Missing download redirect');
+        final target = current.resolve(location);
+        if (target.scheme != 'https' || target.userInfo.isNotEmpty || target.hasFragment) {
+          throw const FormatException('Unsafe download redirect');
+        }
+        current = target;
+        await next.stream.drain<void>();
+      }
+      if (response == null) throw const FormatException('Too many download redirects');
       final sink = partial.openWrite();
       var total = 0;
       try {

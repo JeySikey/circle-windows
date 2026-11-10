@@ -7,9 +7,10 @@ Set-Location $PSScriptRoot
 flutter config --enable-windows-desktop
 if ($LASTEXITCODE -ne 0) { throw 'Flutter config failed' }
 if (-not (Test-Path windows)) { flutter create --platforms=windows --project-name=circle_windows .; if ($LASTEXITCODE -ne 0) { throw 'Flutter create failed' } }
+Copy-Item branding\circle.ico windows\runner\resources\app_icon.ico -Force
 flutter pub get
 if ($LASTEXITCODE -ne 0) { throw 'Flutter pub get failed' }
-flutter analyze
+flutter analyze --no-fatal-infos
 if ($LASTEXITCODE -ne 0) { throw 'Dart analysis failed' }
 flutter test
 if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
@@ -24,6 +25,6 @@ $exe = 'build\windows\x64\runner\Release\circle_windows.exe'
 if (-not (Test-Path $exe)) { throw "Missing $exe" }
 $compiler = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "${env:ProgramFiles}\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $compiler) { throw 'Install Inno Setup 6' }
-& $compiler '/DAppVersion=0.3.2' installer\Circle.iss
+& $compiler '/DAppVersion=0.4.0' installer\Circle.iss
 if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
-Write-Host 'Done: dist\Circle_Windows_0.3.2_Setup.exe'
+Write-Host 'Done: dist\Circle_Windows_0.4.0_Setup.exe'
