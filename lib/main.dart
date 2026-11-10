@@ -18,7 +18,7 @@ const secure = FlutterSecureStorage();
 const updateManifest = String.fromEnvironment('CIRCLE_UPDATE_URL');
 const updateRepository = String.fromEnvironment('CIRCLE_GITHUB_REPO');
 const updatePublicKey = String.fromEnvironment('CIRCLE_UPDATE_PUBLIC_KEY');
-const appVersion = '0.5.1';
+const appVersion = '0.6.0';
 
 Uri? get circleUpdateUri => updateManifest.trim().isNotEmpty
     ? Uri.tryParse(updateManifest.trim())
@@ -538,8 +538,45 @@ class PostCard extends StatelessWidget {
           Row(children: [Flexible(child: Text(label(author), overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleMedium)), if (author['verified'] == true) const Padding(padding: EdgeInsets.only(left: 5), child: Icon(Icons.verified_rounded, color: circleGold, size: 16))]),
           const SizedBox(height: 3), Text('${circleDate(post['created_at'])}${community.isEmpty ? '' : '  ·  ${community['name'] ?? ''}'}', style: Theme.of(context).textTheme.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis),
         ])),
-        const Icon(Icons.more_horiz, color: circleMuted),
+        if (post['can_edit'] == true) PopupMenuButton<String>(
+          tooltip: 'Управление публикацией',
+          icon: const Icon(Icons.more_horiz_rounded, color: circleMuted),
+          onSelected: (action) async {
+            try {
+              if (action == 'delete') {
+                final approved = await showDialog<bool>(context: context, builder: (dialog) => AlertDialog(
+                  title: const Text('Удалить публикацию?'),
+                  content: const Text('Удаление публикации и её комментариев нельзя отменить.'),
+                  actions: [TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Отмена')),
+                    FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Удалить'))],
+                ));
+                if (approved != true) return;
+                await api.call('post-delete', body: {'post_id': id});
+              } else if (action == 'pin') {
+                await api.call('post-pin', body: {'post_id': id});
+              } else if (action == 'comments') {
+                await api.call('post-edit', body: {'post_id': id, 'field': 'comments', 'enabled': post['comments_enabled'] != true});
+              } else {
+                final field = action == 'title' ? 'title' : 'body';
+                final text = await compose(context, field == 'title' ? 'Изменить заголовок' : 'Изменить текст',
+                  initial: field == 'title' ? title : body, maxLength: field == 'title' ? 140 : 4000);
+                if (text == null || (field == 'title' && text.trim().isEmpty)) return;
+                await api.call('post-edit', body: {'post_id': id, 'field': field, 'value': text});
+              }
+              if (context.mounted) refresh();
+            } catch (error) {if (context.mounted) notify(context, '$error');}
+          },
+          itemBuilder: (_) => [
+            const PopupMenuItem(value: 'title', child: Text('Изменить заголовок')),
+            const PopupMenuItem(value: 'body', child: Text('Изменить текст')),
+            PopupMenuItem(value: 'comments', child: Text(post['comments_enabled'] == true ? 'Отключить комментарии' : 'Включить комментарии')),
+            if (community.isEmpty) PopupMenuItem(value: 'pin', child: Text(post['is_pinned'] == true ? 'Открепить' : 'Закрепить в профиле')),
+            const PopupMenuDivider(),
+            const PopupMenuItem(value: 'delete', child: Text('Удалить публикацию', style: TextStyle(color: circleRed))),
+          ],
+        ),
       ]),
+      if (post['is_pinned'] == true) const Padding(padding: EdgeInsets.only(top: 12), child: Row(children: [Icon(Icons.push_pin, size: 13, color: circleGold), SizedBox(width: 6), Text('Закреплённая публикация', style: TextStyle(color: circleGold, fontSize: 11))])),
       if (title.isNotEmpty) ...[const SizedBox(height: 16), Text(title, style: Theme.of(context).textTheme.titleLarge)],
       if (body.isNotEmpty) ...[const SizedBox(height: 9), SelectableText(body, style: Theme.of(context).textTheme.bodyMedium)],
       if (post['has_media'] == true) Padding(padding: const EdgeInsets.only(top: 15), child: CircleMedia(api: api, route: 'post-media', id: id, mime: '${post['media_mime'] ?? ''}')),
@@ -547,6 +584,9 @@ class PostCard extends StatelessWidget {
       const SizedBox(height: 10), Wrap(spacing: 15, runSpacing: 5, children: [
         TextButton.icon(onPressed: () async {try {await api.call('post-like', body: {'post_id': id}); refresh();} catch (e) {if (context.mounted) notify(context, '$e');}}, icon: Icon(stats['liked'] == true || stats['mine'] == true ? Icons.favorite_rounded : Icons.favorite_border_rounded, size: 19), label: Text('${stats['likes'] ?? 0}  Нравится')),
         TextButton.icon(onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => CommentsScreen(api, id))), icon: const Icon(Icons.mode_comment_outlined, size: 19), label: Text('${stats['comments'] ?? 0}  Комментарии')),
+        TextButton.icon(onPressed: () async {try {await api.call('post-repost', body: {'post_id': id}); if (context.mounted) refresh();} catch (error) {if (context.mounted) notify(context, '$error');}},
+          icon: Icon(stats['reposted'] == true ? Icons.repeat : Icons.repeat, size: 19),
+          label: Text('${stats['reposts'] ?? 0}  Репост')),
       ]),
     ]));
   }
@@ -582,7 +622,20 @@ class _CommentsScreenState extends State<CommentsScreen> {
         Row(children: [Expanded(child: Text(label(obj(comment['author'])), style: const TextStyle(fontWeight: FontWeight.w700))), Text(circleDate(comment['created_at']), style: const TextStyle(color: circleMuted, fontSize: 11))]),
         if (comment['parent_comment_id'] != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text('↳ Ответ на #${comment['parent_comment_id']}', style: const TextStyle(color: circleGold, fontSize: 11))),
         const SizedBox(height: 6), Text('${comment['body'] ?? ''}'),
-        Align(alignment: Alignment.centerLeft, child: TextButton(onPressed: () => setState(() => reply = identifier(comment['id'])), child: const Text('Ответить'))),
+        Row(children: [TextButton(onPressed: () => setState(() => reply = identifier(comment['id'])), child: const Text('Ответить')),
+          if (comment['mine'] == true) TextButton.icon(
+            onPressed: () async {
+              final confirmed = await showDialog<bool>(context: context, builder: (d) => AlertDialog(
+                title: const Text('Удалить комментарий?'),
+                actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Отмена')),
+                  FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Удалить'))],
+              ));
+              if (confirmed != true) return;
+              try {await widget.api.call('post-comment-delete', body: {'comment_id': identifier(comment['id'])});
+                if (mounted) setState(() => reload++);
+              } catch (error) {if (mounted) notify(context, '$error');}
+            }, icon: const Icon(Icons.delete_outline, size: 15), label: const Text('Удалить')),
+        ]),
       ])),
     ])))),
     if (reply != null) Padding(padding: const EdgeInsets.symmetric(horizontal: 18), child: Row(children: [Expanded(child: Text('Ответ на комментарий #$reply', style: const TextStyle(color: circleGold))), IconButton(onPressed: () => setState(() => reply = null), icon: const Icon(Icons.close))])),
@@ -639,6 +692,7 @@ class ProfileScreen extends StatefulWidget {
 }
 class _ProfileScreenState extends State<ProfileScreen> {
   int avatarVersion = 0;
+  String postTab = 'posts';
   late Future<Map<String, dynamic>> profile;
   @override void initState() {super.initState(); reload();}
   void reload() {profile = _readProfile();}
@@ -661,8 +715,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (!mounted || bio == null) return;
     final status = await compose(context, 'Статус', initial: '${data['status_text'] ?? ''}', maxLength: 80);
     if (!mounted || status == null) return;
+    final visibility = await showDialog<String>(context: context, builder: (dialog) => SimpleDialog(
+      title: const Text('Кто видит мой профиль?'),
+      children: [
+        SimpleDialogOption(onPressed: () => Navigator.pop(dialog, 'PUBLIC'), child: const Text('Все пользователи')),
+        SimpleDialogOption(onPressed: () => Navigator.pop(dialog, 'MEMBERS'), child: const Text('Друзья')),
+        SimpleDialogOption(onPressed: () => Navigator.pop(dialog, 'PRIVATE'), child: const Text('Приватный профиль')),
+      ],
+    ));
+    if (visibility == null) return;
     try {
-      await widget.api.call('profile-save', body: {'display_name': name, 'bio': bio, 'status_text': status, 'visibility': '${data['visibility'] ?? 'PUBLIC'}'});
+      await widget.api.call('profile-save', body: {'display_name': name, 'bio': bio, 'status_text': status, 'visibility': visibility});
       if (mounted) setState(reload);
     } catch (e) {if (mounted) notify(context, '$e');}
   }
@@ -674,6 +737,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
       widget.api.clearMedia('avatar');
       if (mounted) setState(() {avatarVersion++; reload();});
     } catch (e) {if (mounted) notify(context, '$e');}
+  }
+  Future<void> uploadCover() async {
+    final picked = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['jpg', 'jpeg', 'png', 'webp']);
+    if (picked?.files.single.path == null) return;
+    try {
+      await widget.api.upload('profile-cover-upload', File(picked!.files.single.path!), field: 'cover');
+      widget.api.clearMedia('profile-cover');
+      if (mounted) setState(() {avatarVersion++; reload();});
+    } catch (error) {if (mounted) notify(context, '$error');}
   }
   @override Widget build(BuildContext context) => FutureBuilder<Map<String, dynamic>>(future: profile, builder: (context, snapshot) {
     if (snapshot.hasError) return CircleEmpty(title: 'Профиль не загрузился', description: '${snapshot.error}', action: OutlinedButton(onPressed: () => setState(reload), child: const Text('Повторить')));
@@ -687,18 +759,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
         Container(height: 195, decoration: BoxDecoration(borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
           gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [const Color(0xFF282521), circleGold.withValues(alpha: .22), const Color(0xFF141519)])),
           child: Stack(children: [
-            if (data['cover_url'] != null) Positioned.fill(child: ClipRRect(borderRadius: const BorderRadius.vertical(top: Radius.circular(18)), child: CircleRemoteImage(api: widget.api, route: 'profile-cover', id: identifier(person['id'])))),
+            if (data['cover_url'] != null) Positioned.fill(child: ClipRRect(borderRadius: const BorderRadius.vertical(top: Radius.circular(18)), child: CircleRemoteImage(key: ValueKey(avatarVersion), api: widget.api, route: 'profile-cover', id: identifier(person['id'])))),
             Positioned(right: 30, top: -58, child: Container(width: 320, height: 320, decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: circleGold.withValues(alpha: .15), width: 2)))),
             Positioned(right: 75, top: -15, child: Container(width: 235, height: 235, decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: circleGold.withValues(alpha: .23))))),
             const Positioned(bottom: 28, left: 28, child: Text('МОЙ ПРОФИЛЬ', style: TextStyle(letterSpacing: 3, color: circleGoldBright, fontWeight: FontWeight.w700, fontSize: 11))),
+            Positioned(bottom: 16, right: 18, child: OutlinedButton.icon(onPressed: uploadCover,
+              icon: const Icon(Icons.wallpaper_rounded, size: 17), label: const Text('Изменить обложку'))),
           ])),
         Padding(padding: const EdgeInsets.fromLTRB(26, 0, 26, 25), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Transform.translate(offset: const Offset(0, -33), child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          Transform.translate(offset: const Offset(0, -33), child: Wrap(spacing: 12, runSpacing: 9,
+            crossAxisAlignment: WrapCrossAlignment.end, children: [
             GestureDetector(onTap: uploadAvatar, child: CircleUserAvatar(key: ValueKey(avatarVersion), api: widget.api, user: person, radius: 49)),
-            const Spacer(),
             OutlinedButton.icon(onPressed: uploadAvatar, icon: const Icon(Icons.photo_camera_outlined, size: 17), label: const Text('Аватар')),
-            const SizedBox(width: 9), OutlinedButton.icon(onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => RewardSettingsScreen(widget.api))), icon: const Icon(Icons.workspace_premium_outlined, size: 17), label: const Text('Награды')),
-            const SizedBox(width: 9), FilledButton.icon(onPressed: () => edit(data), icon: const Icon(Icons.edit_outlined, size: 17), label: const Text('Изменить профиль')),
+            OutlinedButton.icon(onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => RewardSettingsScreen(widget.api))), icon: const Icon(Icons.workspace_premium_outlined, size: 17), label: const Text('Награды')),
+            FilledButton.icon(onPressed: () => edit(data), icon: const Icon(Icons.edit_outlined, size: 17), label: const Text('Изменить профиль')),
           ])),
           Transform.translate(offset: const Offset(0, -18), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [Flexible(child: Text(label(person), style: Theme.of(context).textTheme.headlineMedium)), if (person['verified'] == true) const Padding(padding: EdgeInsets.only(left: 7), child: Icon(Icons.verified, color: circleGold))]),
@@ -714,8 +788,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ]),
         ])),
       ])),
-      const SizedBox(height: 23), const CircleSection(title: 'Публикации', subtitle: 'Мои записи и фотографии'),
-      const SizedBox(height: 16), SizedBox(height: 680, child: FeedScreen(widget.api, route: 'profile-posts')),
+      const SizedBox(height: 23), const CircleSection(title: 'Публикации', subtitle: 'Мои записи, фотографии и репосты'),
+      const SizedBox(height: 14), Align(alignment: Alignment.centerLeft, child: SegmentedButton<String>(segments: const [
+          ButtonSegment(value: 'posts', label: Text('Мои записи'), icon: Icon(Icons.article_outlined)),
+          ButtonSegment(value: 'reposts', label: Text('Репосты'), icon: Icon(Icons.repeat)),
+        ], selected: {postTab}, onSelectionChanged: (selected) => setState(() => postTab = selected.first))),
+      const SizedBox(height: 16), SizedBox(height: 680, child: FeedScreen(widget.api,
+        key: ValueKey('profile-$postTab'), route: 'profile-posts', query: {'tab': postTab})),
     ])));
   });
   Widget _counter(String value, String text) => Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Column(children: [Text(value, style: const TextStyle(color: circleGoldBright, fontSize: 22, fontWeight: FontWeight.w800)), const SizedBox(height: 5), Text(text, style: const TextStyle(color: circleMuted, fontSize: 12))]));
@@ -828,6 +907,15 @@ class PublicProfile extends StatefulWidget {
 }
 class _PublicProfileState extends State<PublicProfile> {
   late Future<Map<String, dynamic>> request;
+  Future<void> openConversation(Map<String, dynamic> peer) async {
+    try {
+      final conversation = await widget.api.call('dm-open', body: {'user_id': widget.id});
+      final current = await widget.api.call('me');
+      if (!mounted) return;
+      await Navigator.push(context, MaterialPageRoute<void>(builder: (_) => MessagesScreen(
+        widget.api, identifier(conversation['conversation_id']), peer: peer, me: obj(current['user']))));
+    } catch (error) {if (mounted) notify(context, '$error');}
+  }
   @override void initState() {super.initState(); request = widget.api.call('user-profile', query: {'id': '${widget.id}'});}
   @override void didUpdateWidget(covariant PublicProfile old) {
     super.didUpdateWidget(old);
@@ -843,7 +931,10 @@ class _PublicProfileState extends State<PublicProfile> {
       final data = snapshot.data!;
       final person = obj(data['user']);
       return Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1000), child: Column(children: [
-        Padding(padding: const EdgeInsets.all(24), child: CircleSurface(child: Row(children: [CircleUserAvatar(api: widget.api, user: person, radius: 39), const SizedBox(width: 19), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label(person), style: Theme.of(context).textTheme.headlineSmall), const SizedBox(height: 4), Text('@${person['username'] ?? ''}', style: const TextStyle(color: circleGoldBright)), if ('${data['bio'] ?? ''}'.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 11), child: Text('${data['bio']}'))]))]))),
+        Padding(padding: const EdgeInsets.all(24), child: CircleSurface(child: Row(children: [CircleUserAvatar(api: widget.api, user: person, radius: 39), const SizedBox(width: 19), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label(person), style: Theme.of(context).textTheme.headlineSmall), const SizedBox(height: 4), Text('@${person['username'] ?? ''}', style: const TextStyle(color: circleGoldBright)),
+          const SizedBox(height: 10), OutlinedButton.icon(onPressed: () => openConversation(person),
+            icon: const Icon(Icons.chat_bubble_outline_rounded, size: 16), label: const Text('Написать сообщение')),
+          if ('${data['bio'] ?? ''}'.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 11), child: Text('${data['bio']}'))]))]))),
         Expanded(child: FeedScreen(widget.api, route: 'profile-posts', query: {'user_id': '${widget.id}'})),
       ])));
     },

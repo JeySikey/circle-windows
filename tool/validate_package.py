@@ -5,7 +5,7 @@ import zipfile
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
-php = Path(__file__).resolve().parents[2] / 'site' / 'api' / 'mobile.php'
+php = root / 'server_patch' / 'api' / 'mobile.php'
 required = [
     'pubspec.yaml', 'lib/main.dart', 'lib/api.dart', 'lib/design.dart',
     'lib/live_room.dart', 'lib/media_view.dart', 'lib/updater.dart',
@@ -14,7 +14,7 @@ required = [
     'tool/self_test_update.py', 'tool/test_bootstrap_keys.py', 'tool/bootstrap_github_keys.py',
     'tool/validate_package.py', 'tool/sign_release.py', 'tool/package_windows.ps1',
     'tool/verify_installer.ps1', 'tool/diagnose_windows.ps1', 'tool/Circle-Diagnostics.cmd',
-    'docs/GITHUB-AUTO-UPDATE.md',
+    'docs/GITHUB-AUTO-UPDATE.md', 'server_patch/api/mobile.php', 'tool/check_api_contract.py',
     '.github/workflows/windows.yml', '.github/workflows/bootstrap-signing.yml', 'installer/Circle.iss',
     'assets/circle-mark.png', 'branding/circle.ico', 'README.md',
 ]
@@ -22,7 +22,7 @@ for rel in required:
     if not (root / rel).is_file():
         raise SystemExit(f'Missing required file: {rel}')
 
-version = '0.5.1'
+version = '0.6.0'
 for rel in ['pubspec.yaml', 'lib/main.dart', 'installer/Circle.iss', 'build-installer.ps1', '.github/workflows/windows.yml']:
     if version not in (root / rel).read_text(encoding='utf-8'):
         raise SystemExit(f'Wrong version: {rel}')

@@ -42,7 +42,7 @@ class CircleApi {
       if (response.statusCode >= 400 || decoded['ok'] != true) {
         final code = '${decoded['error'] ?? ''}';
         final hint = switch (code) {
-          'SERVER_ERROR' => 'Ошибка сервера Circle (HTTP 500). Для профиля требуется Mobile API hotfix; подробности — в журнале PHP.',
+          'SERVER_ERROR' => 'Внутренняя ошибка сервера Circle. Проверьте совместимость Mobile API и журнал ошибок PHP.',
           'UNAUTHORIZED' => 'Сессия истекла. Войдите заново.',
           'FEATURE_DISABLED' => 'Эта функция отключена администратором сайта.',
           'FORBIDDEN' => 'Недостаточно прав для этого действия.',
