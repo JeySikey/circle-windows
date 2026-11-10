@@ -39,9 +39,7 @@ jobs:
         shell: pwsh
         run: |
           python tool/validate_package.py
-          if ($LASTEXITCODE -ne 0) { throw 'Package validation failed' }
-          python tool/test_installer_ci.py
-          if ($LASTEXITCODE -ne 0) { throw 'Installer regression test failed' }
+          if ($LASTEXITCODE -ne 0) { throw 'Project validation failed. Check the required-file list and embedded installer checks above.' }
       - name: Offline signed update protocol tests
         shell: pwsh
         run: |
