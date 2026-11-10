@@ -36,7 +36,12 @@ jobs:
       - name: Resolve Flutter packages
         run: flutter pub get
       - name: Validate project files
-        run: python tool/validate_package.py
+        shell: pwsh
+        run: |
+          python tool/validate_package.py
+          if ($LASTEXITCODE -ne 0) { throw 'Package validation failed' }
+          python tool/test_installer_ci.py
+          if ($LASTEXITCODE -ne 0) { throw 'Installer regression test failed' }
       - name: Offline signed update protocol tests
         shell: pwsh
         run: |
@@ -97,16 +102,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) {throw 'Updater validation failed'}
       - name: Verify installed runtime contents
         shell: pwsh
-        run: |
-          $installer = Get-ChildItem dist/*_Setup.exe | Select-Object -First 1
-          if (-not $installer) { throw 'Installer missing' }
-          $destination = Join-Path $env:RUNNER_TEMP 'Circle-Installer-Verification'
-          & $installer.FullName /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/DIR=$destination" "/LOG=$env:RUNNER_TEMP\circle-install.log"
-          if ($LASTEXITCODE -ne 0) { throw "Installer failed with exit code $LASTEXITCODE" }
-          foreach ($file in @('circle_windows.exe','flutter_windows.dll','msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll','data\flutter_assets','data\icudtl.dat','tools\apply_update.ps1')) {
-            if (!(Test-Path (Join-Path $destination $file))) { throw "Missing installed runtime: $file" }
-          }
-          Write-Host 'Initial installer and in-place update runtime are complete'
+        timeout-minutes: 8
+        run: ./tool/verify_installer.ps1
+      - name: Upload installer diagnostics if verification fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Circle-Installer-Diagnostics
+          path: ${{ runner.temp }}/circle-setup-verification/*.log
+          if-no-files-found: ignore
+          retention-days: 14
       - uses: actions/upload-artifact@v4
         with:
           name: Circle-Windows-Setup
