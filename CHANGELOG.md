@@ -1,5 +1,10 @@
 # История изменений Circle Windows
 
+## 0.4.1 — CI hotfix (Static analysis)
+- Удалён неиспользуемый импорт `dart:typed_data` из `lib/main.dart` (последнее предупреждение Flutter Analyzer из GitHub Actions).
+- Версия не повышается: это исправление исходного пакета 0.4.1 до успешного выпуска установщика.
+- Проверка `flutter analyze` остаётся строгой по warnings.
+
 ## 0.4.1 — исправления GitHub Static analysis (тестовый кандидат)
 - Устранён конфликт `CircleAvatar` из Flutter Material с пользовательским виджетом, который теперь называется `CircleUserAvatar`.
 - Исправлено повторное использование имени `_` в трёх аргументах `Image.errorBuilder`.

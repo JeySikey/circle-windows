@@ -2,6 +2,8 @@
 
 **Твой круг. Твои люди.** Нативный Windows-клиент Circle, совместимый с PHP-сервером **Circle 5.2.3**. Приложение **не использует WebView**: экраны, навигация, редакторы, аудио/видео и звонки реализованы во Flutter. Подключение к тому же серверу через HTTPS Mobile API (`/api/mobile.php`); отдельная база не нужна.
 
+**Дополнительное исправление GitHub Static analysis.** Удалён неиспользуемый импорт `dart:typed_data` из `lib/main.dart`; он вызывал `unused_import` и блокировал workflow. Версия остаётся 0.4.1, поскольку предыдущий релиз не прошёл сборку.
+
 **Исправление 0.4.1.** Устранены ошибки `duplicate_definition` в `design.dart` и `ambiguous_import` / `invocation_of_non_function` из-за названия `CircleAvatar`. Клиент использует `CircleUserAvatar`; обновлена инициализация LiveKit. Исходники не компилировались локально, проверка результата — в GitHub Actions.
 
 ## Как получить установщик в GitHub

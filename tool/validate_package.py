@@ -24,6 +24,8 @@ for rel in ['pubspec.yaml', 'lib/main.dart', 'installer/Circle.iss', 'build-inst
 # Regression checks for the exact analyzer errors reported in 0.4.0.
 main_source = (root / 'lib/main.dart').read_text(encoding='utf-8')
 design_source = (root / 'lib/design.dart').read_text(encoding='utf-8')
+if "import 'dart:typed_data';" in main_source:
+    raise SystemExit('Regression: unused dart:typed_data import breaks flutter analyze')
 if 'CircleAvatar(' in main_source or 'class CircleAvatar' in design_source:
     raise SystemExit('Widget name still collides with Flutter Material CircleAvatar')
 if 'class CircleUserAvatar extends StatefulWidget' not in design_source:
