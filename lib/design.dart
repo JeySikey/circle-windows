@@ -11,6 +11,7 @@ const circleField = Color(0xFF111317);
 const circleStroke = Color(0xFF30343B);
 const circleGold = Color(0xFFC6A15B);
 const circleGoldBright = Color(0xFFE2C17C);
+const circleGoldGlow = Color(0x33D7AB53);
 const circleText = Color(0xFFF1F1EF);
 const circleMuted = Color(0xFFA1A5AD);
 const circleGreen = Color(0xFF42C58A);
@@ -61,11 +62,12 @@ ThemeData circleTheme({bool light = false}) {
       contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: stroke)),
       enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: stroke)),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: circleGold, width: 1.5)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: circleGoldBright, width: 1.4)),
     ),
     filledButtonTheme: FilledButtonThemeData(style: FilledButton.styleFrom(
       backgroundColor: circleGold, foregroundColor: const Color(0xFF1A1712),
-      textStyle: const TextStyle(fontWeight: FontWeight.w700),
+      textStyle: const TextStyle(fontWeight: FontWeight.w700, letterSpacing: .1),
+      elevation: 0,
       minimumSize: const Size(0, 44),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
     )),
@@ -75,7 +77,10 @@ ThemeData circleTheme({bool light = false}) {
       minimumSize: const Size(0, 43),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
     )),
-    iconButtonTheme: IconButtonThemeData(style: IconButton.styleFrom(foregroundColor: muted)),
+    iconButtonTheme: IconButtonThemeData(style: IconButton.styleFrom(foregroundColor: muted, hoverColor: gold.withValues(alpha: .1), highlightColor: gold.withValues(alpha: .13))),
+    splashFactory: InkSparkle.splashFactory,
+    visualDensity: VisualDensity.standard,
+    pageTransitionsTheme: const PageTransitionsTheme(builders: {TargetPlatform.windows: FadeForwardsPageTransitionsBuilder()}),
     appBarTheme: AppBarTheme(backgroundColor: surface, foregroundColor: text, elevation: 0, scrolledUnderElevation: 0, surfaceTintColor: Colors.transparent, titleTextStyle: TextStyle(color: text, fontSize: 18, fontWeight: FontWeight.w700)),
     dialogTheme: DialogThemeData(backgroundColor: surface, shape: RoundedRectangleBorder(side: BorderSide(color: stroke), borderRadius: BorderRadius.circular(18))),
     snackBarTheme: SnackBarThemeData(backgroundColor: light ? const Color(0xFF29251E) : circlePanel2, contentTextStyle: const TextStyle(color: circleText)),
@@ -88,7 +93,7 @@ class CircleLogo extends StatelessWidget {
   final bool compact;
   final double size;
   @override Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
-    Container(width: size, height: size, decoration: BoxDecoration(borderRadius: BorderRadius.circular(size * .25), border: Border.all(color: circleGold.withValues(alpha: .45)), color: circleGold.withValues(alpha: .09)), child: Padding(padding: EdgeInsets.all(size * .16), child: Image.asset('assets/circle-mark.png'))),
+    Container(width: size, height: size, decoration: BoxDecoration(borderRadius: BorderRadius.circular(size * .25), border: Border.all(color: circleGold.withValues(alpha: .47)), color: circleGold.withValues(alpha: .09), boxShadow: [BoxShadow(color: circleGold.withValues(alpha: .12), blurRadius: 18, spreadRadius: 1)]), child: Padding(padding: EdgeInsets.all(size * .16), child: Image.asset('assets/circle-mark.png'))),
     if (!compact) ...[const SizedBox(width: 11), Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
       Text('Circle', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: size * .53, fontWeight: FontWeight.w800, letterSpacing: -.5, height: 1)),
       const SizedBox(height: 5), const Text('ТВОЙ КРУГ. ТВОИ ЛЮДИ.', style: TextStyle(fontSize: 8.5, letterSpacing: 1.4, color: circleGold, fontWeight: FontWeight.w700)),
@@ -112,8 +117,12 @@ class CircleSurface extends StatelessWidget {
       color: Theme.of(context).brightness == Brightness.dark
         ? null : Theme.of(context).cardTheme.color,
       borderRadius: BorderRadius.circular(radius),
-      border: Border.all(color: accent ? circleGold.withValues(alpha: .5) : Theme.of(context).dividerColor),
-      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .13), blurRadius: 24, offset: const Offset(0, 9))],
+      border: Border.all(color: accent ? circleGold.withValues(alpha: .58) : Theme.of(context).dividerColor),
+      boxShadow: [
+        if (accent && Theme.of(context).brightness == Brightness.dark)
+          BoxShadow(color: circleGold.withValues(alpha: .105), blurRadius: 24, spreadRadius: 0.5),
+        BoxShadow(color: Colors.black.withValues(alpha: accent ? .17 : .085), blurRadius: accent ? 19 : 10, offset: const Offset(0, 4)),
+      ],
     ), child: child);
 }
 
@@ -122,13 +131,17 @@ class CircleSection extends StatelessWidget {
   final String title;
   final String? subtitle;
   final Widget? trailing;
-  @override Widget build(BuildContext context) => Row(children: [
-    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+  @override Widget build(BuildContext context) => LayoutBuilder(builder: (context, c) {
+    final heading = Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
       Text(title, style: Theme.of(context).textTheme.headlineSmall),
       if (subtitle != null) ...[const SizedBox(height: 5), Text(subtitle!, style: Theme.of(context).textTheme.bodySmall)],
-    ])),
-    if (trailing != null) trailing!,
-  ]);
+    ]);
+    if (trailing == null) return heading;
+    if (c.maxWidth < 620) return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      heading, const SizedBox(height: 12), trailing!,
+    ]);
+    return Row(children: [Expanded(child: heading), const SizedBox(width: 16), trailing!]);
+  });
 }
 
 class CircleUserAvatar extends StatefulWidget {

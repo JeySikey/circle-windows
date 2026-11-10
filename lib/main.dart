@@ -13,12 +13,13 @@ import 'media_view.dart';
 import 'updater.dart';
 import 'live_room.dart';
 import 'startup_log.dart';
+import 'desktop_features.dart';
 
 const secure = FlutterSecureStorage();
 const updateManifest = String.fromEnvironment('CIRCLE_UPDATE_URL');
 const updateRepository = String.fromEnvironment('CIRCLE_GITHUB_REPO');
 const updatePublicKey = String.fromEnvironment('CIRCLE_UPDATE_PUBLIC_KEY');
-const appVersion = '0.6.1';
+const appVersion = '0.7.0';
 
 Uri? get circleUpdateUri => updateManifest.trim().isNotEmpty
     ? Uri.tryParse(updateManifest.trim())
@@ -240,30 +241,34 @@ class _CircleRootState extends State<CircleRoot> {
             end: Alignment.bottomCenter, colors: [Color(0xFF151619), Color(0xFF111215)]),
           color: widget.light ? const Color(0xFFEAE5DC) : null,
           border: Border(right: BorderSide(color: Theme.of(context).dividerColor))),
-        child: SafeArea(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        child: SafeArea(child: ListView(children: [
           Padding(padding: EdgeInsets.fromLTRB(mini ? 16 : 19, 24, 8, 34), child: CircleLogo(compact: mini, size: 43)),
           for (var i = 0; i < names.length; i++) Padding(
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 7),
             child: Tooltip(message: names[i], child: InkWell(borderRadius: BorderRadius.circular(13), onTap: () => setState(() {page = i; visited.add(i);}),
-              child: AnimatedContainer(duration: const Duration(milliseconds: 180), height: 51,
+              child: AnimatedContainer(duration: const Duration(milliseconds: 220), curve: Curves.easeOutCubic, height: 51,
                 padding: EdgeInsets.symmetric(horizontal: mini ? 13 : 17),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(13),
-                  color: page == i ? circleGold.withValues(alpha: .12) : Colors.transparent,
+                  color: page == i ? circleGold.withValues(alpha: .10) : Colors.transparent,
                   border: Border.all(color: page == i ? circleGold.withValues(alpha: .62) : Colors.transparent),
-                  boxShadow: page == i ? [BoxShadow(color: circleGold.withValues(alpha: .08), blurRadius: 19)] : [],
+                  boxShadow: page == i ? [BoxShadow(color: circleGold.withValues(alpha: .14), blurRadius: 22, spreadRadius: .4)] : [],
                 ), child: Row(children: [Icon(icons[i], color: page == i ? circleGoldBright : circleMuted, size: 23),
                   if (!mini) ...[const SizedBox(width: 14), Text(names[i], style: TextStyle(fontWeight: FontWeight.w600, color: page == i ? Theme.of(context).colorScheme.onSurface : circleMuted))],
                 ])))),
           ),
-          const Spacer(),
+          const SizedBox(height: 18),
           Padding(padding: const EdgeInsets.symmetric(horizontal: 14), child: Divider(color: Theme.of(context).dividerColor)),
           if (!mini) Padding(padding: const EdgeInsets.fromLTRB(20, 10, 8, 9), child: Text('РАЗДЕЛЫ', style: Theme.of(context).textTheme.bodySmall?.copyWith(letterSpacing: 2, fontSize: 10))),
           _secondaryNav(mini, Icons.groups_2_outlined, 'Сообщества', () => openSecondary('Сообщества', CommunitiesScreen(client))),
           _secondaryNav(mini, Icons.call_outlined, 'Звонки', () => openSecondary('Звонки', CallsScreen(client))),
           _secondaryNav(mini, Icons.local_movies_outlined, 'Кинозалы', () => openSecondary('Кинозалы', CinemaRoomsScreen(client))),
+          _secondaryNav(mini, Icons.groups_3_outlined, 'Групповые встречи', () => openSecondary('Групповые встречи', DesktopMeetingsScreen(client))),
+          _secondaryNav(mini, Icons.security_outlined, 'Безопасность', () => openSecondary('Безопасность', DesktopSecurityScreen(client))),
           if (['OWNER', 'ADMIN'].contains('${me['platform_role'] ?? ''}'.toUpperCase()))
             _secondaryNav(mini, Icons.admin_panel_settings_outlined, 'Администрирование', () => openSecondary('Администрирование', AdminSummaryScreen(client))),
+          if (['OWNER', 'ADMIN'].contains('${me['platform_role'] ?? ''}'.toUpperCase()))
+            _secondaryNav(mini, Icons.policy_outlined, 'Trust & Safety', () => openSecondary('Trust & Safety', DesktopTrustScreen(client))),
           _secondaryNav(mini, Icons.settings_outlined, 'Обновления', () => openSecondary('Обновления', const UpdatesScreen())),
           if (!mini) Padding(padding: const EdgeInsets.fromLTRB(21, 8, 10, 3), child: Text('CIRCLE WINDOWS · $appVersion',
             style: const TextStyle(color: circleMuted, fontSize: 9, letterSpacing: 1.5))),
@@ -289,7 +294,7 @@ class _CircleRootState extends State<CircleRoot> {
               itemBuilder: (_) => const [PopupMenuItem(value: 'updates', child: Text('Обновления Circle')), PopupMenuItem(value: 'logout', child: Text('Выйти из аккаунта'))],
               child: Padding(padding: const EdgeInsets.only(left: 9), child: CircleUserAvatar(api: client, user: me, radius: 17))),
           ])),
-        Expanded(child: IndexedStack(index: page, children: screens)),
+        Expanded(child: IndexedStack(index: page, children: screens.map((screen) => RepaintBoundary(child: screen)).toList())),
       ]))),
     ]));
   }
@@ -956,7 +961,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final compact = MediaQuery.sizeOf(context).width < 1090;
     return Row(children: [
       SizedBox(width: compact ? 250 : 325, child: Column(children: [
-        Container(height: 75, padding: const EdgeInsets.symmetric(horizontal: 21), alignment: Alignment.centerLeft, decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor))), child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [Text('Сообщения', style: Theme.of(context).textTheme.titleLarge), const SizedBox(height: 5), const Text('Личные переписки', style: TextStyle(color: circleMuted, fontSize: 11))])),
+        Container(height: 75, padding: const EdgeInsets.symmetric(horizontal: 12), decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor))), child: Row(children: [Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [Text('Сообщения', style: Theme.of(context).textTheme.titleLarge), const SizedBox(height: 5), const Text('Личные переписки', style: TextStyle(color: circleMuted, fontSize: 11))])), IconButton(tooltip: 'Архив диалогов', onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DesktopArchiveScreen(widget.api))), icon: const Icon(Icons.archive_outlined))])),
         Expanded(child: FutureBuilder<List<Map<String, dynamic>>>(future: conversations, builder: (context, snapshot) {
           if (snapshot.hasError) return CircleEmpty(title: 'Нет соединения', description: '${snapshot.error}', action: TextButton(onPressed: () => setState(reload), child: const Text('Повторить')));
           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(color: circleGold));
@@ -1071,6 +1076,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
         Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label(widget.peer), style: Theme.of(context).textTheme.titleMedium), Text('@${widget.peer['username'] ?? ''}', style: Theme.of(context).textTheme.bodySmall)])),
         IconButton(tooltip: 'Голосовой звонок', onPressed: () => startCall(), icon: const Icon(Icons.call_outlined, color: circleGold)),
         IconButton(tooltip: 'Видеозвонок', onPressed: () => startCall(video: true), icon: const Icon(Icons.videocam_outlined, color: circleGold)),
+        IconButton(tooltip: 'В архив', onPressed: () async {try {await widget.api.call('desktop-dm-archive', body: {'conversation_id': widget.id, 'archived': true}); if (context.mounted) fxNotice(context,'Диалог перемещён в архив');} catch (e) {if (context.mounted) fxNotice(context,e);}}, icon: const Icon(Icons.archive_outlined)),
         IconButton(tooltip: 'Обновить сообщения', onPressed: () => setState(reload), icon: const Icon(Icons.refresh_rounded)),
       ])),
       Expanded(child: FutureBuilder<List<Map<String, dynamic>>>(future: messages, builder: (context, snapshot) {
@@ -1106,8 +1112,13 @@ class _MessagesScreenState extends State<MessagesScreen> {
         if ('${message['body'] ?? ''}'.isNotEmpty) SelectableText('${message['body']}', style: const TextStyle(fontSize: 13.5, height: 1.5)),
         for (final attachment in attachments) Padding(padding: const EdgeInsets.only(top: 10), child: CircleMedia(api: widget.api, route: 'attachment', id: identifier(attachment['id']), mime: '${attachment['mime'] ?? ''}', compact: true)),
         Row(mainAxisSize: MainAxisSize.min, children: [Text(circleDate(message['created_at']), style: const TextStyle(color: circleMuted, fontSize: 10)), const SizedBox(width: 9), PopupMenuButton<String>(tooltip: 'Действия с сообщением', icon: const Icon(Icons.more_horiz, size: 18), padding: EdgeInsets.zero,
-          onSelected: (value) {if (value == 'reply') {setState(() => reply = id);} else {react(id, value);}},
-          itemBuilder: (_) => [const PopupMenuItem(value: 'reply', child: Text('Ответить')), ...['❤️', '👍', '😂', '🔥', '👏'].map((reaction) => PopupMenuItem(value: reaction, child: Text(reaction)))],
+          onSelected: (value) async {
+            if(value == 'reply') {setState(() => reply = id); return;}
+            if(value == 'edit') {final body = await fxPrompt(context, 'Изменить сообщение', initial: '${message['body'] ?? ''}', lines: 4);if(!mounted||body==null)return;try{await widget.api.call('desktop-dm-edit',body:{'conversation_id':widget.id,'message_id':id,'body':body});if(mounted)setState(reload);}catch(e){if(mounted)fxNotice(context,e);}return;}
+            if(value == 'delete') {if(!await fxConfirm(context,'Удалить сообщение?', 'Это действие нельзя отменить.'))return;try{await widget.api.call('desktop-dm-delete',body:{'conversation_id':widget.id,'message_id':id});if(mounted)setState(reload);}catch(e){if(mounted)fxNotice(context,e);}return;}
+            react(id,value);
+          },
+          itemBuilder: (_) => [const PopupMenuItem(value: 'reply', child: Text('Ответить')), if(mine)const PopupMenuItem(value:'edit',child: Text('Изменить')), if(mine)const PopupMenuItem(value:'delete',child:Text('Удалить')), ...['❤️', '👍', '😂', '🔥', '👏'].map((reaction) => PopupMenuItem(value: reaction, child: Text(reaction)))],
         )]),
       ]),
     ))));
@@ -1142,7 +1153,7 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     } catch (e) {if (mounted) notify(context, '$e');}
   }
   @override Widget build(BuildContext context) => Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1050), child: Column(children: [
-    Padding(padding: const EdgeInsets.fromLTRB(24, 26, 24, 18), child: CircleSection(title: 'Мои сообщества', subtitle: 'Пространства, в которые тебя пригласили', trailing: FilledButton.icon(onPressed: join, icon: const Icon(Icons.link, size: 19), label: const Text('Вступить по ссылке')))),
+    Padding(padding: const EdgeInsets.fromLTRB(24, 26, 24, 18), child: CircleSection(title: 'Мои сообщества', subtitle: 'Пространства, в которые тебя пригласили', trailing: Wrap(spacing: 8, runSpacing: 8, children: [OutlinedButton.icon(onPressed: () async {final made = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => DesktopCreateCommunity(widget.api))); if (made == true && mounted) setState(() => reload++);}, icon: const Icon(Icons.add), label: const Text('Создать')), FilledButton.icon(onPressed: join, icon: const Icon(Icons.link, size: 19), label: const Text('По приглашению'))]))),
     Expanded(child: ApiList(key: ValueKey(reload), api: widget.api, route: 'communities', emptyTitle: 'Ты пока не состоишь в сообществах', itemBuilder: (context, item, refresh) => CircleSurface(child: Row(children: [
       Container(width: 58, height: 58, decoration: BoxDecoration(color: circleGold.withValues(alpha: .13), borderRadius: BorderRadius.circular(13)), child: const Icon(Icons.groups_2_outlined, color: circleGold, size: 28)),
       const SizedBox(width: 17), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('${item['name'] ?? ''}', style: Theme.of(context).textTheme.titleLarge), const SizedBox(height: 4), Text('${item['description'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall), const SizedBox(height: 7), Text('${item['members'] ?? '—'} участников', style: const TextStyle(fontSize: 11, color: circleGold))])),
@@ -1188,7 +1199,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
           Text('${community['name'] ?? ''}', style: Theme.of(context).textTheme.headlineSmall), const SizedBox(height: 8), Text('${community['description'] ?? ''}'),
           const SizedBox(height: 14), Wrap(spacing: 10, runSpacing: 8, children: [
             if (community['can_post_news'] == true) FilledButton.icon(onPressed: publish, icon: const Icon(Icons.edit_note_rounded), label: const Text('Новая новость')),
-            if (['OWNER', 'ADMIN'].contains('${community['role'] ?? ''}'.toUpperCase())) OutlinedButton.icon(onPressed: () => manage(community), icon: const Icon(Icons.settings_outlined), label: const Text('Управление')),
+            if (['OWNER', 'ADMIN'].contains('${community['role'] ?? ''}'.toUpperCase())) OutlinedButton.icon(onPressed: () => manage(community), icon: const Icon(Icons.edit_outlined), label: const Text('Описание')),
+            if (['OWNER', 'ADMIN'].contains('${community['role'] ?? ''}'.toUpperCase())) FilledButton.tonalIcon(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DesktopCommunityTools(widget.api, widget.id))), icon: const Icon(Icons.tune), label: const Text('Панель сообщества')),
+            if ('${community['role'] ?? ''}'.toUpperCase() == 'MEMBER') TextButton.icon(onPressed: () async {if(!await fxConfirm(context, 'Выйти из сообщества?', 'Ты больше не сможешь читать его материалы без нового приглашения.'))return;try {await widget.api.call('desktop-community-leave', body: {'community_id': widget.id});if(context.mounted)Navigator.pop(context);}catch(e){if(context.mounted)fxNotice(context,e);}}, icon: const Icon(Icons.logout), label: const Text('Покинуть')),
           ]),
         ])),
       ])),
@@ -1222,6 +1235,21 @@ class _ChannelScreenState extends State<ChannelScreen> {
       if (mounted) setState(() {reply = null; reload++;});
     } catch (e) {if (mounted) notify(context, '$e');}
   }
+  Future<void> channelAction(Map<String,dynamic> message,String action) async {
+    final mid=identifier(message['id']);
+    if(action=='reply'){setState(()=>reply=mid);return;}
+    final route={'edit':'desktop-channel-edit','delete':'desktop-channel-message-delete','pin':'desktop-channel-pin','report':'desktop-channel-report'}[action];
+    if(route==null)return;
+    String? value;
+    if(action=='edit'||action=='report'){
+      value=await fxPrompt(context,action=='edit'?'Изменить сообщение':'Причина жалобы',initial:action=='edit'?'${message['body'] ?? ''}':'',lines:3);
+      if(!mounted||value==null)return;
+    }
+    if(action=='delete'&&!await fxConfirm(context,'Удалить сообщение?','Сообщение и вложения будут удалены.'))return;
+    try {await widget.api.call(route,body:{'message_id':mid,if(action=='edit')'body':value,if(action=='report')'reason':value});
+      if(mounted){fxNotice(context,'Сохранено');setState(()=>reload++);}}
+    catch(e){if(mounted)fxNotice(context,e);}
+  }
   @override Widget build(BuildContext context) => CirclePage(title: '# ${widget.name}', child: Column(children: [
     Expanded(child: ApiList(key: ValueKey(reload), api: widget.api, route: 'channel-messages', query: {'channel_id': '${widget.id}'}, emptyTitle: 'В канале пока тихо', itemBuilder: (context, message, refresh) => CircleSurface(padding: const EdgeInsets.all(14), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
       CircleUserAvatar(api: widget.api, user: obj(message['author']), radius: 20), const SizedBox(width: 12),
@@ -1229,7 +1257,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
         Row(children: [Expanded(child: Text(label(obj(message['author'])), style: const TextStyle(fontWeight: FontWeight.w700))), Text(circleDate(message['created_at']), style: const TextStyle(color: circleMuted, fontSize: 11))]),
         if (message['reply_to_id'] != null) Text('↳ Ответ на #${message['reply_to_id']}', style: const TextStyle(fontSize: 11, color: circleGold)),
         const SizedBox(height: 6), Text('${message['body'] ?? ''}'),
-        Wrap(children: [TextButton(onPressed: () => setState(() => reply = identifier(message['id'])), child: const Text('Ответить')), for (final reaction in ['❤️', '👍', '😂']) TextButton(onPressed: () async {try {await widget.api.call('channel-react', body: {'message_id': identifier(message['id']), 'emoji': reaction}); if (context.mounted) refresh();} catch (e) {if (context.mounted) notify(context, '$e');}}, child: Text(reaction))]),
+        Wrap(children: [TextButton(onPressed: () => channelAction(message,'reply'), child: const Text('Ответить')), PopupMenuButton<String>(tooltip:'Действия',icon:const Icon(Icons.more_horiz),onSelected:(value)=>channelAction(message,value),itemBuilder:(_)=>const [PopupMenuItem(value:'edit',child:Text('Изменить моё сообщение')),PopupMenuItem(value:'delete',child:Text('Удалить')),PopupMenuItem(value:'pin',child:Text('Закрепить')),PopupMenuItem(value:'report',child:Text('Пожаловаться'))]), for (final reaction in ['❤️', '👍', '😂']) TextButton(onPressed: () async {try {await widget.api.call('channel-react', body: {'message_id': identifier(message['id']), 'emoji': reaction}); if (context.mounted) refresh();} catch (e) {if (context.mounted) notify(context, '$e');}}, child: Text(reaction))]),
       ])),
     ])))),
     if (reply != null) Padding(padding: const EdgeInsets.all(8), child: Text('Ответ на #$reply', style: const TextStyle(color: circleGold))),

@@ -7,14 +7,14 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 php = root / 'server_patch' / 'api' / 'mobile.php'
 required = [
-    'pubspec.yaml', 'lib/main.dart', 'lib/api.dart', 'lib/design.dart',
+    'pubspec.yaml', 'lib/main.dart', 'lib/api.dart', 'lib/design.dart', 'lib/desktop_features.dart',
     'lib/live_room.dart', 'lib/media_view.dart', 'lib/updater.dart',
     'lib/startup_log.dart', 'tool/package_windows.ps1', 'tool/verify_installer.ps1', 'tool/diagnose_windows.ps1',
     'tool/apply_update.ps1', 'tool/build_payload.py', 'tool/release_keys.py',
     'tool/self_test_update.py', 'tool/test_bootstrap_keys.py', 'tool/bootstrap_github_keys.py',
     'tool/validate_package.py', 'tool/sign_release.py', 'tool/package_windows.ps1',
     'tool/verify_installer.ps1', 'tool/diagnose_windows.ps1', 'tool/Circle-Diagnostics.cmd',
-    'docs/GITHUB-AUTO-UPDATE.md', 'server_patch/api/mobile.php', 'tool/check_api_contract.py',
+    'docs/GITHUB-AUTO-UPDATE.md', 'server_patch/api/mobile.php', 'server_patch/api/desktop_ext.php', 'tool/check_api_contract.py', 'tool/check_desktop_contract.py',
     '.github/workflows/windows.yml', '.github/workflows/bootstrap-signing.yml', 'installer/Circle.iss',
     'assets/circle-mark.png', 'branding/circle.ico', 'README.md',
 ]
@@ -22,7 +22,7 @@ for rel in required:
     if not (root / rel).is_file():
         raise SystemExit(f'Missing required file: {rel}')
 
-version = '0.6.1'
+version = '0.7.0'
 for rel in ['pubspec.yaml', 'lib/main.dart', 'installer/Circle.iss', 'build-installer.ps1', '.github/workflows/windows.yml']:
     if version not in (root / rel).read_text(encoding='utf-8'):
         raise SystemExit(f'Wrong version: {rel}')
@@ -48,7 +48,7 @@ if php.exists():
     mobile = php.read_text(encoding='utf-8')
     routes = set(re.findall(r"(?:call|upload|media)\('([a-z][a-z0-9-]+)'", (root / 'lib/main.dart').read_text(encoding='utf-8')))
     for route in sorted(routes):
-        if f"'{route}'" not in mobile:
+        if f"'{route}'" not in mobile and f"'{route}'" not in (root / 'server_patch/api/desktop_ext.php').read_text(encoding='utf-8'):
             print(f'WARNING: API route not found in PHP source: {route}')
 
 # The installer regression guard is inline so GitHub uploads missing the optional

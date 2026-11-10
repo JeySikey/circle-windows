@@ -1193,5 +1193,7 @@ try {
         if($recipient>0){try{notify_user($recipient,'dm_message',$uid,['conversation_id'=>$conversationId]);}catch(Throwable $notifyErr){error_log('Circle mobile DM notification: '.$notifyErr->getMessage());}}
         mobile_reply(['ok'=>true,'message'=>['id'=>$mid,'user_id'=>$uid,'body'=>$body]],201);
     }
+    require_once __DIR__ . '/desktop_ext.php';
+    circle_desktop_dispatch($route,$actor);
     mobile_fail('NOT_FOUND',404);
 }catch(Throwable $e){error_log('Circle mobile API: '.$e->getMessage());mobile_fail('SERVER_ERROR',500);}

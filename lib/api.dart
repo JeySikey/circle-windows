@@ -21,9 +21,16 @@ class CircleApi {
   // Avatars / profile cover: coalesced requests and a bounded in-memory LRU.
   // Never cache messages or video files; prevents memory growth and scroll jank.
   final Map<String, Future<List<int>>> _imageCache = {};
+  final Map<String, int> _imageSizes = {};
+  int _imageBytes = 0;
+  void _evictMedia(String key) {
+    _imageCache.remove(key);
+    _imageBytes -= _imageSizes.remove(key) ?? 0;
+    if (_imageBytes < 0) _imageBytes = 0;
+  }
   void clearMedia([String? route]) {
-    if (route == null) {_imageCache.clear(); return;}
-    _imageCache.removeWhere((key, _) => key.startsWith('$route:'));
+    if (route == null) {_imageCache.clear(); _imageSizes.clear(); _imageBytes = 0; return;}
+    for (final key in _imageCache.keys.where((key) => key.startsWith('$route:')).toList()) {_evictMedia(key);}
   }
   Uri uri(String route, [Map<String, String> query = const {}]) => base.replace(path: '/api/mobile.php', queryParameters: {'route': route, ...query});
 
@@ -86,9 +93,16 @@ class CircleApi {
       return r.bodyBytes;
     });
     if (cacheable) {
-      if (_imageCache.length >= 60) _imageCache.remove(_imageCache.keys.first);
+      while (_imageCache.length >= 36) {_evictMedia(_imageCache.keys.first);}
       _imageCache[key] = request;
-      request.then((_) {}, onError: (Object _) { _imageCache.remove(key); });
+      request.then((bytes) {
+        if (!identical(_imageCache[key], request)) return;
+        _imageSizes[key] = bytes.length;
+        _imageBytes += bytes.length;
+        while (_imageBytes > 32 * 1024 * 1024 && _imageCache.isNotEmpty) {
+          _evictMedia(_imageCache.keys.first);
+        }
+      }, onError: (Object _) { if (identical(_imageCache[key], request)) _evictMedia(key); });
     }
     return request;
   }

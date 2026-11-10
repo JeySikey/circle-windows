@@ -60,3 +60,13 @@
 ## 0.4.2 — startup fixes
 
 Необязательные Windows сервисы перенесены за первый кадр; проверка Windows runtime; диагностика запуска.
+
+## 0.7.0 — Desktop feature parity expansion
+
+- Added native settings for account security, device/session management, TOTP enrolment and recovery codes.
+- Added new community creation, invites, roles, permissions, moderation, voice channels, appearance and icon/banner upload.
+- Added direct message editing/deleting/archiving, channel moderation actions and group LiveKit meetings.
+- Added native Trust & Safety moderation interface with TXT/DOCX rule imports.
+- Refined site-aligned dark/gold UI, soft contextual glow, compact responsive layout and limited avatar cache.
+- Added authenticated `api/desktop_ext.php`, server-side permission checks, and Desktop API regression guard. No database migration.
+- No change to release signing key; updater maintains GitHub Releases signed runtime ZIP mechanism.
