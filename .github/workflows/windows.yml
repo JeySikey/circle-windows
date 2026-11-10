@@ -5,7 +5,7 @@ on:
     branches: [main, master]
     tags: ['v*']
 permissions:
-  contents: read
+  contents: write
 jobs:
   build:
     runs-on: windows-latest
@@ -20,10 +20,13 @@ jobs:
         run: flutter config --enable-windows-desktop
       - name: Generate Windows runner
         run: flutter create --platforms=windows --project-name=circle_windows .
+      - name: Circle branded Windows icon
+        shell: pwsh
+        run: Copy-Item 'branding/circle.ico' 'windows/runner/resources/app_icon.ico' -Force
       - name: Resolve dependencies
         run: flutter pub get
       - name: Static analysis
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos
       - name: Unit tests
         run: flutter test
       - name: Build native Windows exe
@@ -43,7 +46,7 @@ jobs:
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
-          & $iscc '/DAppVersion=0.3.2' 'installer\Circle.iss'
+          & $iscc '/DAppVersion=0.4.0' 'installer\Circle.iss'
           if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed' }
       - uses: actions/upload-artifact@v4
         with:
@@ -57,3 +60,31 @@ jobs:
           path: build/windows/x64/runner/Release/**
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish signed GitHub release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          CIRCLE_SIGNING_KEY: ${{ secrets.CIRCLE_UPDATE_PRIVATE_KEY_PEM }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if (-not $env:CIRCLE_SIGNING_KEY) {
+            throw 'Set secret CIRCLE_UPDATE_PRIVATE_KEY_PEM before publishing a version tag'
+          }
+          python -m pip install --disable-pip-version-check cryptography
+          $installer = Get-ChildItem 'dist/*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Installer not found' }
+          $tag = '${{ github.ref_name }}'
+          $expected = 'v0.4.0'
+          if ($tag -ne $expected) { throw "Release tag $tag does not match app version $expected" }
+          $url = "https://github.com/${{ github.repository }}/releases/download/$tag/$($installer.Name)"
+          $keyFile = Join-Path $env:RUNNER_TEMP 'circle-signing-key.pem'
+          [System.IO.File]::WriteAllText($keyFile, $env:CIRCLE_SIGNING_KEY)
+          try {
+            python tool/sign_release.py --private-key $keyFile --package $installer.FullName --version 0.4.0 --url $url --output update-manifest.json
+            if ($LASTEXITCODE -ne 0) { throw 'Signing failed' }
+            gh release create $tag $installer.FullName 'update-manifest.json' --title "Circle Windows $tag" --notes 'Native Windows release. Download the EXE installer.'
+            if ($LASTEXITCODE -ne 0) { throw 'GitHub release failed' }
+          } finally {
+            if (Test-Path $keyFile) { Remove-Item $keyFile -Force }
+          }
