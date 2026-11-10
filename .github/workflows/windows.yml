@@ -43,13 +43,43 @@ jobs:
             $defs += '--dart-define=CIRCLE_UPDATE_PUBLIC_KEY=' + $env:CIRCLE_UPDATE_PUBLIC_KEY
           }
           flutter build windows --release @defs
+      - name: Stage MSVC runtime and verify complete Windows distribution
+        shell: pwsh
+        run: ./tool/package_windows.ps1
       - name: Build EXE installer
         shell: pwsh
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
-          & $iscc '/DAppVersion=0.4.1' 'installer\Circle.iss'
+          & $iscc '/DAppVersion=0.4.2' 'installer\Circle.iss'
           if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed' }
+      - name: Validate installation payload (not just compilation)
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem dist/*.exe | Select-Object -First 1
+          if (-not $installer) { throw 'Installer missing' }
+          $destination = Join-Path $env:RUNNER_TEMP 'Circle-Installer-Verification'
+          & $installer.FullName /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/DIR=$destination" "/LOG=$env:RUNNER_TEMP\circle-install.log"
+          if ($LASTEXITCODE -ne 0) { throw "Installer failed: $LASTEXITCODE" }
+          foreach ($path in @('circle_windows.exe','flutter_windows.dll','msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll','data\flutter_assets','data\icudtl.dat')) {
+            if (-not (Test-Path (Join-Path $destination $path))) { throw "Installed payload missing: $path" }
+          }
+          Write-Host "Installation payload verified: $destination"
+      - name: Portable startup probe (diagnostic only on headless CI)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          ./tool/diagnose_windows.ps1 -Executable 'build/windows/x64/runner/Release/circle_windows.exe' -Seconds 5
+      - name: Upload Windows startup diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Circle-Windows-CI-Diagnostics
+          path: |
+            ${{ runner.temp }}/circle-install.log
+            ${{ runner.temp }}/Circle-Installer-Verification/tools/diagnose_windows.ps1
+          if-no-files-found: ignore
+          retention-days: 14
       - uses: actions/upload-artifact@v4
         with:
           name: Circle-Windows-Setup
@@ -77,13 +107,13 @@ jobs:
           $installer = Get-ChildItem 'dist/*.exe' | Select-Object -First 1
           if (-not $installer) { throw 'Installer not found' }
           $tag = '${{ github.ref_name }}'
-          $expected = 'v0.4.1'
+          $expected = 'v0.4.2'
           if ($tag -ne $expected) { throw "Release tag $tag does not match app version $expected" }
           $url = "https://github.com/${{ github.repository }}/releases/download/$tag/$($installer.Name)"
           $keyFile = Join-Path $env:RUNNER_TEMP 'circle-signing-key.pem'
           [System.IO.File]::WriteAllText($keyFile, $env:CIRCLE_SIGNING_KEY)
           try {
-            python tool/sign_release.py --private-key $keyFile --package $installer.FullName --version 0.4.1 --url $url --output update-manifest.json
+            python tool/sign_release.py --private-key $keyFile --package $installer.FullName --version 0.4.2 --url $url --output update-manifest.json
             if ($LASTEXITCODE -ne 0) { throw 'Signing failed' }
             gh release create $tag $installer.FullName 'update-manifest.json' --title "Circle Windows $tag" --notes 'Native Windows release. Download the EXE installer.'
             if ($LASTEXITCODE -ne 0) { throw 'GitHub release failed' }
