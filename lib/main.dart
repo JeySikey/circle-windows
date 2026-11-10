@@ -18,7 +18,7 @@ const secure = FlutterSecureStorage();
 const updateManifest = String.fromEnvironment('CIRCLE_UPDATE_URL');
 const updateRepository = String.fromEnvironment('CIRCLE_GITHUB_REPO');
 const updatePublicKey = String.fromEnvironment('CIRCLE_UPDATE_PUBLIC_KEY');
-const appVersion = '0.5.0';
+const appVersion = '0.5.1';
 
 Uri? get circleUpdateUri => updateManifest.trim().isNotEmpty
     ? Uri.tryParse(updateManifest.trim())
@@ -1244,7 +1244,7 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
   Future<void> check() async {
     final service = updater;
     if (service == null) {
-      setState(() => status = 'Подписанный канал не настроен. Владельцу репозитория необходимо один раз добавить GitHub Actions Secret CIRCLE_UPDATE_PRIVATE_KEY_PEM и собрать приложение заново.');
+      setState(() => status = 'Подписанный канал не настроен. Владелец репозитория должен один раз запустить GitHub Actions → Circle signing key setup, затем пересобрать приложение.');
       return;
     }
     setState(() {busy = true; status = 'Проверяю релизы GitHub...'; progress = null;});

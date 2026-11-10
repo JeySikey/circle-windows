@@ -11,15 +11,15 @@ required = [
     'lib/live_room.dart', 'lib/media_view.dart', 'lib/updater.dart',
     'lib/startup_log.dart', 'tool/package_windows.ps1', 'tool/diagnose_windows.ps1',
     'tool/apply_update.ps1', 'tool/build_payload.py', 'tool/release_keys.py',
-    'tool/self_test_update.py', 'docs/GITHUB-AUTO-UPDATE.md',
-    '.github/workflows/windows.yml', 'installer/Circle.iss',
+    'tool/self_test_update.py', 'tool/bootstrap_github_keys.py', 'docs/GITHUB-AUTO-UPDATE.md',
+    '.github/workflows/windows.yml', '.github/workflows/bootstrap-signing.yml', 'installer/Circle.iss',
     'assets/circle-mark.png', 'branding/circle.ico', 'README.md',
 ]
 for rel in required:
     if not (root / rel).is_file():
         raise SystemExit(f'Missing required file: {rel}')
 
-version = '0.5.0'
+version = '0.5.1'
 for rel in ['pubspec.yaml', 'lib/main.dart', 'installer/Circle.iss', 'build-installer.ps1', '.github/workflows/windows.yml']:
     if version not in (root / rel).read_text(encoding='utf-8'):
         raise SystemExit(f'Wrong version: {rel}')

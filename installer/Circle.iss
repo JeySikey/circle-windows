@@ -1,6 +1,6 @@
 #define MyAppName "Circle"
 #ifndef AppVersion
-  #define AppVersion "0.5.0"
+  #define AppVersion "0.5.1"
 #endif
 #ifndef BuildRoot
   #define BuildRoot "..\build\windows\x64\runner\Release"

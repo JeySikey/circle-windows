@@ -1,4 +1,4 @@
-# Возможности Circle Windows Native 0.5.0 и сайта Circle 5.2.3
+# Возможности Circle Windows Native 0.5.1 и сайта Circle 5.2.3
 
 Проверено по доступным исходникам `Circle_5.2.3_FULL(1).zip` и companion hotfix `api/mobile.php`. Действующая база на хостинге и LiveKit в этой среде недоступны — статическое соответствие не равно испытанию.
 

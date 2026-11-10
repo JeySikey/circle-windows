@@ -1,5 +1,13 @@
 # История изменений Circle Windows Native
 
+## 0.5.1 — GitHub Actions key bootstrap (no local Python)
+
+- Добавлен отдельный workflow `Circle signing key setup` для одноразовой генерации Ed25519 на GitHub Actions.
+- Приватный ключ сохраняется прямо в GitHub repository Actions secret через временный fine-grained PAT; ключ не выводится в лог и не попадает в ZIP/артефакты.
+- Сценарий запрещает перезапись существующего приватного ключа; основной workflow прекращает сборку, если ключ не настроен, вместо выпуска EXE с неработающим автообновлением.
+- Обновлена инструкция GitHub-only; после успешного bootstrap временный PAT необходимо отозвать.
+- Проверены Python тесты криптографии и структура релизного ZIP; компиляция Windows остаётся задачей GitHub runner.
+
 ## 0.5.0 — GitHub auto-updates, profile hotfix, speed, design
 
 - Проверка новой версии на GitHub Release при старте; подтверждение, потоковая загрузка подписанного ZIP, проверка Ed25519/SHA-256.
