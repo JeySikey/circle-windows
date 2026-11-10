@@ -1,5 +1,12 @@
 # Circle Windows 0.4.2 — исправление запуска и диагностика
 
+## CI installer verification hotfix
+- Исправлен ложный сбой `Installer failed:` без кода: графический Inno Setup запускается с `Start-Process -Wait -PassThru`.
+- Проверяется `ExitCode`, все файлы Flutter-дистрибутива, размер каждого файла и SHA-256 критических бинарных файлов.
+- Сохраняются `circle-install.log` и `circle-install-verification.txt` в диагностических артефактах при ошибке.
+- Сборка на Windows остаётся обязательной, локально Flutter и Inno Setup не запускались.
+
+
 - `runApp` вызывается до необязательной инициализации native media и `window_manager`; медиа-библиотеки загружаются только при воспроизведении.
 - Ошибки чтения токена и восстановления сеанса не оставляют вечную загрузку, не удаляют действующую сессию при временном сбое сети.
 - Локальный журнал Flutter/Dart: `%LOCALAPPDATA%\Circle\logs\startup.log`, без токенов/паролей.
