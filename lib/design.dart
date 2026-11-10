@@ -126,17 +126,17 @@ class CircleSection extends StatelessWidget {
   ]);
 }
 
-class CircleAvatar extends StatefulWidget {
-  const CircleAvatar({super.key, required this.api, required this.user, this.radius = 23});
+class CircleUserAvatar extends StatefulWidget {
+  const CircleUserAvatar({super.key, required this.api, required this.user, this.radius = 23});
   final CircleApi api;
   final Map<String, dynamic> user;
   final double radius;
-  @override State<CircleAvatar> createState() => _CircleAvatarState();
+  @override State<CircleUserAvatar> createState() => _CircleUserAvatarState();
 }
-class _CircleAvatarState extends State<CircleAvatar> {
+class _CircleUserAvatarState extends State<CircleUserAvatar> {
   Future<List<int>>? future;
   @override void initState() {super.initState(); _load();}
-  @override void didUpdateWidget(covariant CircleAvatar old) {super.didUpdateWidget(old); if (old.user['id'] != widget.user['id'] || old.api != widget.api) _load();}
+  @override void didUpdateWidget(covariant CircleUserAvatar old) {super.didUpdateWidget(old); if (old.user['id'] != widget.user['id'] || old.api != widget.api) _load();}
   void _load() {
     final id = identifier(widget.user['id']);
     future = id > 0 && widget.user['avatar_url'] != null ? widget.api.media('avatar', id) : null;
@@ -148,7 +148,7 @@ class _CircleAvatarState extends State<CircleAvatar> {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: circleGold.withValues(alpha: .48), width: 1.5), color: circleGold.withValues(alpha: .13)),
       child: future == null ? Center(child: Text(initials, style: TextStyle(fontSize: widget.radius * .8, fontWeight: FontWeight.w800, color: circleGoldBright))) : FutureBuilder<List<int>>(
-        future: future, builder: (context, snapshot) => snapshot.hasData ? Image.memory(Uint8List.fromList(snapshot.data!), fit: BoxFit.cover, gaplessPlayback: true, errorBuilder: (_, _, _) => Center(child: Text(initials, style: const TextStyle(color: circleGoldBright)))) : Center(child: Text(initials, style: const TextStyle(color: circleGoldBright))),
+        future: future, builder: (context, snapshot) => snapshot.hasData ? Image.memory(Uint8List.fromList(snapshot.data!), fit: BoxFit.cover, gaplessPlayback: true, errorBuilder: (imageContext, imageError, stackTrace) => Center(child: Text(initials, style: const TextStyle(color: circleGoldBright)))) : Center(child: Text(initials, style: const TextStyle(color: circleGoldBright))),
       ),
     );
   }

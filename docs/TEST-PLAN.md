@@ -1,4 +1,4 @@
-# Circle Windows 0.4.0 — план ручных испытаний
+# Circle Windows 0.4.1 — план ручных испытаний
 
 ## A. Сборка/установка
 - [ ] GitHub Actions: Resolve dependencies, Analyze, Unit tests, Release build, Inno Setup зелёные

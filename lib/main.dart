@@ -17,7 +17,7 @@ import 'live_room.dart';
 const secure = FlutterSecureStorage();
 const updateManifest = String.fromEnvironment('CIRCLE_UPDATE_URL');
 const updatePublicKey = String.fromEnvironment('CIRCLE_UPDATE_PUBLIC_KEY');
-const appVersion = '0.4.0';
+const appVersion = '0.4.1';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -116,7 +116,7 @@ class _CircleRootState extends State<CircleRoot> {
       final rawId = identifier(incoming['id']);
       final person = obj(incoming['peer']);
       final accepted = await showDialog<bool>(context: context, barrierDismissible: false, builder: (dialog) => AlertDialog(
-        title: const Text('Входящий звонок'), content: Column(mainAxisSize: MainAxisSize.min, children: [CircleAvatar(api: client, user: person, radius: 38), const SizedBox(height: 14), Text(label(person), style: Theme.of(dialog).textTheme.titleLarge)]),
+        title: const Text('Входящий звонок'), content: Column(mainAxisSize: MainAxisSize.min, children: [CircleUserAvatar(api: client, user: person, radius: 38), const SizedBox(height: 14), Text(label(person), style: Theme.of(dialog).textTheme.titleLarge)]),
         actions: [TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Отклонить')), FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Принять'))],
       ));
       if (accepted == true) {
@@ -179,7 +179,7 @@ class _CircleRootState extends State<CircleRoot> {
           const SizedBox(height: 16),
           Padding(padding: const EdgeInsets.all(12), child: InkWell(onTap: () => setState(() => page = 1), borderRadius: BorderRadius.circular(13),
             child: Container(padding: const EdgeInsets.all(9), decoration: BoxDecoration(borderRadius: BorderRadius.circular(13), color: circleGold.withValues(alpha: .07)),
-              child: Row(children: [CircleAvatar(api: client, user: me, radius: 19), if (!mini) ...[const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label(me), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)), Text('@${me['username'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, color: circleMuted))]))]])))),
+              child: Row(children: [CircleUserAvatar(api: client, user: me, radius: 19), if (!mini) ...[const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label(me), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)), Text('@${me['username'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, color: circleMuted))]))]])))),
         ]))),
       Expanded(child: Column(children: [
         Container(height: 72, decoration: BoxDecoration(color: Theme.of(context).cardTheme.color, border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor))),
@@ -192,7 +192,7 @@ class _CircleRootState extends State<CircleRoot> {
             IconButton(tooltip: 'Переключить тему', onPressed: widget.onTheme, icon: Icon(widget.light ? Icons.dark_mode_outlined : Icons.light_mode_outlined)),
             PopupMenuButton<String>(tooltip: 'Аккаунт', onSelected: (choice) {if (choice == 'logout') logout(); if (choice == 'updates') openSecondary('Обновления', const UpdatesScreen());},
               itemBuilder: (_) => const [PopupMenuItem(value: 'updates', child: Text('Обновления Circle')), PopupMenuItem(value: 'logout', child: Text('Выйти из аккаунта'))],
-              child: Padding(padding: const EdgeInsets.only(left: 9), child: CircleAvatar(api: client, user: me, radius: 17))),
+              child: Padding(padding: const EdgeInsets.only(left: 9), child: CircleUserAvatar(api: client, user: me, radius: 17))),
           ])),
         Expanded(child: IndexedStack(index: page, children: screens)),
       ])),
@@ -356,7 +356,7 @@ class PostCard extends StatelessWidget {
     final title = '${post['title'] ?? ''}';
     final body = '${post['body'] ?? ''}';
     return CircleSurface(padding: const EdgeInsets.all(21), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(children: [CircleAvatar(api: api, user: author, radius: 21), const SizedBox(width: 12),
+      Row(children: [CircleUserAvatar(api: api, user: author, radius: 21), const SizedBox(width: 12),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [Flexible(child: Text(label(author), overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleMedium)), if (author['verified'] == true) const Padding(padding: EdgeInsets.only(left: 5), child: Icon(Icons.verified_rounded, color: circleGold, size: 16))]),
           const SizedBox(height: 3), Text('${circleDate(post['created_at'])}${community.isEmpty ? '' : '  ·  ${community['name'] ?? ''}'}', style: Theme.of(context).textTheme.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -400,7 +400,7 @@ class _CommentsScreenState extends State<CommentsScreen> {
   }
   @override Widget build(BuildContext context) => CirclePage(title: 'Комментарии', child: Column(children: [
     Expanded(child: ApiList(key: ValueKey(reload), api: widget.api, route: 'post-comments', query: {'post_id': '${widget.postId}'}, emptyTitle: 'Пока никто не прокомментировал', itemBuilder: (context, comment, refresh) => CircleSurface(padding: const EdgeInsets.all(14), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      CircleAvatar(api: widget.api, user: obj(comment['author']), radius: 18), const SizedBox(width: 11),
+      CircleUserAvatar(api: widget.api, user: obj(comment['author']), radius: 18), const SizedBox(width: 11),
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [Expanded(child: Text(label(obj(comment['author'])), style: const TextStyle(fontWeight: FontWeight.w700))), Text(circleDate(comment['created_at']), style: const TextStyle(color: circleMuted, fontSize: 11))]),
         if (comment['parent_comment_id'] != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text('↳ Ответ на #${comment['parent_comment_id']}', style: const TextStyle(color: circleGold, fontSize: 11))),
@@ -441,7 +441,7 @@ class _StoriesStripState extends State<StoriesStrip> {
   Widget _storyButton({Map<String, dynamic>? user, IconData? icon, required String title, required VoidCallback onTap, bool isAdd = false}) => SizedBox(width: 96, child: InkWell(onTap: onTap, borderRadius: BorderRadius.circular(16), child: Column(children: [
     Container(width: 73, height: 73, padding: const EdgeInsets.all(4), decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: circleGold, width: 1.8)), child: isAdd
       ? Container(decoration: BoxDecoration(shape: BoxShape.circle, color: circleGold.withValues(alpha: .12)), child: const Icon(Icons.add, color: circleGold, size: 28))
-      : Center(child: CircleAvatar(api: widget.api, user: user ?? {}, radius: 31))),
+      : Center(child: CircleUserAvatar(api: widget.api, user: user ?? {}, radius: 31))),
     const SizedBox(height: 8), Text(title, overflow: TextOverflow.ellipsis, maxLines: 1, style: const TextStyle(fontSize: 11)),
   ])));
 }
@@ -505,7 +505,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ])),
         Padding(padding: const EdgeInsets.fromLTRB(26, 0, 26, 25), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Transform.translate(offset: const Offset(0, -33), child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            GestureDetector(onTap: uploadAvatar, child: CircleAvatar(key: ValueKey(avatarVersion), api: widget.api, user: person, radius: 49)),
+            GestureDetector(onTap: uploadAvatar, child: CircleUserAvatar(key: ValueKey(avatarVersion), api: widget.api, user: person, radius: 49)),
             const Spacer(),
             OutlinedButton.icon(onPressed: uploadAvatar, icon: const Icon(Icons.photo_camera_outlined, size: 17), label: const Text('Аватар')),
             const SizedBox(width: 9), OutlinedButton.icon(onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => RewardSettingsScreen(widget.api))), icon: const Icon(Icons.workspace_premium_outlined, size: 17), label: const Text('Награды')),
@@ -538,7 +538,7 @@ class FriendsScreen extends StatelessWidget {
   @override Widget build(BuildContext context) => Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1100), child: Column(children: [
     const Padding(padding: EdgeInsets.fromLTRB(24, 27, 24, 16), child: CircleSection(title: 'Друзья', subtitle: 'Люди, с которыми ты на связи')),
     Expanded(child: ApiList(api: api, route: 'friends', emptyTitle: 'Пока нет друзей', itemBuilder: (context, person, refresh) => CircleSurface(padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14), child: Row(children: [
-      CircleAvatar(api: api, user: person, radius: 25), const SizedBox(width: 15),
+      CircleUserAvatar(api: api, user: person, radius: 25), const SizedBox(width: 15),
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label(person), style: Theme.of(context).textTheme.titleMedium), const SizedBox(height: 4), Text('@${person['username'] ?? ''}', style: Theme.of(context).textTheme.bodySmall)])),
       OutlinedButton.icon(onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => PublicProfile(api, identifier(person['id'])))), icon: const Icon(Icons.person_outline, size: 16), label: const Text('Профиль')),
     ])))),
@@ -556,7 +556,7 @@ class PublicProfile extends StatelessWidget {
       final data = snapshot.data!;
       final person = obj(data['user']);
       return Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1000), child: Column(children: [
-        Padding(padding: const EdgeInsets.all(24), child: CircleSurface(child: Row(children: [CircleAvatar(api: api, user: person, radius: 39), const SizedBox(width: 19), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label(person), style: Theme.of(context).textTheme.headlineSmall), const SizedBox(height: 4), Text('@${person['username'] ?? ''}', style: const TextStyle(color: circleGoldBright)), if ('${data['bio'] ?? ''}'.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 11), child: Text('${data['bio']}'))]))]))),
+        Padding(padding: const EdgeInsets.all(24), child: CircleSurface(child: Row(children: [CircleUserAvatar(api: api, user: person, radius: 39), const SizedBox(width: 19), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label(person), style: Theme.of(context).textTheme.headlineSmall), const SizedBox(height: 4), Text('@${person['username'] ?? ''}', style: const TextStyle(color: circleGoldBright)), if ('${data['bio'] ?? ''}'.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 11), child: Text('${data['bio']}'))]))]))),
         Expanded(child: FeedScreen(api, route: 'profile-posts', query: {'user_id': '$id'})),
       ])));
     },
@@ -587,7 +587,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
           return ListView(padding: const EdgeInsets.all(10), children: [for (final conversation in data) Padding(padding: const EdgeInsets.only(bottom: 6), child: InkWell(
             borderRadius: BorderRadius.circular(13), onTap: () => setState(() => selected = conversation), child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 13), decoration: BoxDecoration(color: identifier(selected?['id']) == identifier(conversation['id']) ? circleGold.withValues(alpha: .12) : Colors.transparent, borderRadius: BorderRadius.circular(13), border: Border.all(color: identifier(selected?['id']) == identifier(conversation['id']) ? circleGold.withValues(alpha: .48) : Colors.transparent)),
-              child: Row(children: [CircleAvatar(api: widget.api, user: obj(conversation['peer']), radius: 21), const SizedBox(width: 11), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label(obj(conversation['peer'])), style: Theme.of(context).textTheme.titleMedium, overflow: TextOverflow.ellipsis), const SizedBox(height: 5), Text('${conversation['last_message'] ?? ''}', style: Theme.of(context).textTheme.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis)]))]),
+              child: Row(children: [CircleUserAvatar(api: widget.api, user: obj(conversation['peer']), radius: 21), const SizedBox(width: 11), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label(obj(conversation['peer'])), style: Theme.of(context).textTheme.titleMedium, overflow: TextOverflow.ellipsis), const SizedBox(height: 5), Text('${conversation['last_message'] ?? ''}', style: Theme.of(context).textTheme.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis)]))]),
             ),
           ))]);
         })),
@@ -687,7 +687,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
   @override Widget build(BuildContext context) {
     final chat = Column(children: [
       Container(height: 75, padding: const EdgeInsets.symmetric(horizontal: 20), decoration: BoxDecoration(color: Theme.of(context).cardTheme.color, border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor))), child: Row(children: [
-        CircleAvatar(api: widget.api, user: widget.peer, radius: 20), const SizedBox(width: 12),
+        CircleUserAvatar(api: widget.api, user: widget.peer, radius: 20), const SizedBox(width: 12),
         Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label(widget.peer), style: Theme.of(context).textTheme.titleMedium), Text('@${widget.peer['username'] ?? ''}', style: Theme.of(context).textTheme.bodySmall)])),
         IconButton(tooltip: 'Голосовой звонок', onPressed: () => startCall(), icon: const Icon(Icons.call_outlined, color: circleGold)),
         IconButton(tooltip: 'Видеозвонок', onPressed: () => startCall(video: true), icon: const Icon(Icons.videocam_outlined, color: circleGold)),
@@ -841,7 +841,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
   }
   @override Widget build(BuildContext context) => CirclePage(title: '# ${widget.name}', child: Column(children: [
     Expanded(child: ApiList(key: ValueKey(reload), api: widget.api, route: 'channel-messages', query: {'channel_id': '${widget.id}'}, emptyTitle: 'В канале пока тихо', itemBuilder: (context, message, refresh) => CircleSurface(padding: const EdgeInsets.all(14), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      CircleAvatar(api: widget.api, user: obj(message['author']), radius: 20), const SizedBox(width: 12),
+      CircleUserAvatar(api: widget.api, user: obj(message['author']), radius: 20), const SizedBox(width: 12),
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [Expanded(child: Text(label(obj(message['author'])), style: const TextStyle(fontWeight: FontWeight.w700))), Text(circleDate(message['created_at']), style: const TextStyle(color: circleMuted, fontSize: 11))]),
         if (message['reply_to_id'] != null) Text('↳ Ответ на #${message['reply_to_id']}', style: const TextStyle(fontSize: 11, color: circleGold)),

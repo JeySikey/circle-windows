@@ -1,4 +1,4 @@
-# Сопоставление Native 0.4.0 и Circle server 5.2.3
+# Сопоставление Native 0.4.1 и Circle server 5.2.3
 
 Источник: `Circle_5.2.3_FULL(1).zip`, конкретно `api/mobile.php`. Исходники сервера не изменены.
 

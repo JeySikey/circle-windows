@@ -28,9 +28,9 @@ class _CircleLiveRoomState extends State<CircleLiveRoom> {
       final url = '${credentials['url'] ?? ''}';
       final token = '${credentials['token'] ?? ''}';
       if (!url.startsWith('wss://') || token.isEmpty) throw StateError('Сервер не предоставил безопасные параметры подключения LiveKit');
-      candidate = Room();
+      candidate = Room(roomOptions: const RoomOptions(adaptiveStream: true, dynacast: true));
       candidate.addListener(updated);
-      await candidate.connect(url, token, roomOptions: const RoomOptions(adaptiveStream: true, dynacast: true));
+      await candidate.connect(url, token);
       await candidate.localParticipant?.setMicrophoneEnabled(true);
       if (widget.startVideo) await candidate.localParticipant?.setCameraEnabled(true);
       if (!mounted) {await candidate.disconnect(); await candidate.dispose(); return;}

@@ -16,11 +16,20 @@ for rel in required:
     if not (root / rel).is_file():
         raise SystemExit(f'Missing required file: {rel}')
 
-version = '0.4.0'
+version = '0.4.1'
 for rel in ['pubspec.yaml', 'lib/main.dart', 'installer/Circle.iss', 'build-installer.ps1', '.github/workflows/windows.yml']:
     if version not in (root / rel).read_text(encoding='utf-8'):
         raise SystemExit(f'Wrong version: {rel}')
 
+# Regression checks for the exact analyzer errors reported in 0.4.0.
+main_source = (root / 'lib/main.dart').read_text(encoding='utf-8')
+design_source = (root / 'lib/design.dart').read_text(encoding='utf-8')
+if 'CircleAvatar(' in main_source or 'class CircleAvatar' in design_source:
+    raise SystemExit('Widget name still collides with Flutter Material CircleAvatar')
+if 'class CircleUserAvatar extends StatefulWidget' not in design_source:
+    raise SystemExit('Missing renamed avatar widget')
+if 'errorBuilder: (_, _, _)' in design_source:
+    raise SystemExit('Duplicate wildcard arguments in errorBuilder')
 if php.exists():
     mobile = php.read_text(encoding='utf-8')
     routes = set(re.findall(r"(?:call|upload|media)\('([a-z][a-z0-9-]+)'", (root / 'lib/main.dart').read_text(encoding='utf-8')))
@@ -28,7 +37,7 @@ if php.exists():
         if f"'{route}'" not in mobile:
             print(f'WARNING: API route not found in PHP source: {route}')
 
-zip_path = root.parent.parent / 'Circle_Windows_Native_0.4.0_GitHub.zip'
+zip_path = root.parent / f'Circle_Windows_Native_{version}_FIXED_GitHub.zip'
 if zip_path.is_file():
     with zipfile.ZipFile(zip_path) as archive:
         if archive.testzip() is not None:

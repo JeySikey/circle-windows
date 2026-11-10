@@ -1,17 +1,19 @@
-# Circle Windows Native 0.4.0
+# Circle Windows Native 0.4.1
 
 **Твой круг. Твои люди.** Нативный Windows-клиент Circle, совместимый с PHP-сервером **Circle 5.2.3**. Приложение **не использует WebView**: экраны, навигация, редакторы, аудио/видео и звонки реализованы во Flutter. Подключение к тому же серверу через HTTPS Mobile API (`/api/mobile.php`); отдельная база не нужна.
+
+**Исправление 0.4.1.** Устранены ошибки `duplicate_definition` в `design.dart` и `ambiguous_import` / `invocation_of_non_function` из-за названия `CircleAvatar`. Клиент использует `CircleUserAvatar`; обновлена инициализация LiveKit. Исходники не компилировались локально, проверка результата — в GitHub Actions.
 
 ## Как получить установщик в GitHub
 
 1. Распаковать **весь** ZIP в корень репозитория GitHub (не добавлять ZIP одним файлом). Убедиться, что присутствует `.github/workflows/windows.yml`.
 2. Сохранить изменения в `main`. Открыть **Actions → Circle Windows build**. Сборка запускается автоматически или вручную через **Run workflow**.
-3. После успешной сборки скачать `Circle-Windows-Setup` в разделе **Artifacts**. Внутри будет `Circle_Windows_0.4.0_Setup.exe`. Отдельно публикуется портативный `Circle-Windows-Portable`.
+3. После успешной сборки скачать `Circle-Windows-Setup` в разделе **Artifacts**. Внутри будет `Circle_Windows_0.4.1_Setup.exe`. Отдельно публикуется портативный `Circle-Windows-Portable`.
 4. Установить приложение на Windows 10/11 x64. Вход по HTTPS-адресу Circle, по умолчанию `https://acircle.ru`.
 
 Сборка на GitHub использует Flutter stable, Visual Studio на Windows runner, Inno Setup 6; проверяет `flutter analyze --no-fatal-infos`, `flutter test` и компиляцию в release. При ошибке компиляции **артефакт не публикуется**. Для локальной сборки на Windows: `powershell -ExecutionPolicy Bypass -File .\build-installer.ps1`.
 
-## Что нового в 0.4.0
+## Что нового в 0.4.1
 
 - Новый UI на основе реальных токенов сайта из `assets/style.css`: #101113 / #191B1F / #30343B / #C6A15B / #E2C17C. Оригинальный знак Circle конвертирован в PNG и ICO для Windows.
 - Новый вход, боковая панель с четырьмя основными разделами, сворачивание, верхняя панель, отдельные дополнительные разделы, переключение тёмной/светлой темы, адаптивные размеры от 760 px.
@@ -39,10 +41,10 @@
    - Variable `CIRCLE_UPDATE_PUBLIC_KEY` — выведенный Base64.
    - Variable `CIRCLE_UPDATE_URL` — `https://github.com/OWNER/REPO/releases/latest/download/update-manifest.json` (подставить имя репозитория).
 4. Сохранить эти переменные **до сборки** устанавливаемого клиента: публичный ключ и URL встраиваются через `--dart-define`.
-5. Сделать тег **`v0.4.0`** и запустить workflow. При успешном тестировании GitHub сформирует установщик и опубликует в Releases подписанный `update-manifest.json`. Приватный PEM в артефакты не попадает.
+5. Сделать тег **`v0.4.1`** и запустить workflow. При успешном тестировании GitHub сформирует установщик и опубликует в Releases подписанный `update-manifest.json`. Приватный PEM в артефакты не попадает.
 6. Для следующих релизов обновлять версии **согласованно** в `pubspec.yaml`, `lib/main.dart`, `installer/Circle.iss`, `build-installer.ps1`, workflow. В шаге релиза текущий тег должен совпадать с версией.
 
-При установке поверх предыдущей версии Inno Setup использует постоянный `AppId`; пользовательские данные на сервере и локальный токен Windows не удаляются. Переход с 0.3.2 на 0.4.0 проверяется отдельно.
+При установке поверх предыдущей версии Inno Setup использует постоянный `AppId`; пользовательские данные на сервере и локальный токен Windows не удаляются. Переход с 0.3.2 на 0.4.1 проверяется отдельно.
 
 ## Проверки на Windows
 

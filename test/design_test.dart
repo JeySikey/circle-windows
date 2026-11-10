@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:circle_windows/design.dart';
+import 'package:circle_windows/api.dart';
 
 void main() {
   test('Circle 5.2.3 palette remains consistent', () {
@@ -13,6 +14,19 @@ void main() {
     await tester.pumpWidget(MaterialApp(theme: circleTheme(), home: Scaffold(body: Center(child: CircleSurface(child: const Text('Твой круг. Твои люди.'))))));
     expect(find.text('Твой круг. Твои люди.'), findsOneWidget);
     expect(Theme.of(tester.element(find.text('Твой круг. Твои люди.'))).scaffoldBackgroundColor, circleBackground);
+  });
+  testWidgets('Custom user avatar has a distinct class from Flutter Material', (tester) async {
+    final api = CircleApi('https://example.com');
+    addTearDown(api.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: CircleUserAvatar(
+        api: api,
+        user: const {'id': 0, 'username': 'Circle'},
+        radius: 20,
+      )),
+    ));
+    expect(find.byType(CircleUserAvatar), findsOneWidget);
+    expect(find.text('C'), findsOneWidget);
   });
   test('Russian display date is predictable', () {
     expect(circleDate('2025-11-10 13:20:00'), '10.11.2025');
