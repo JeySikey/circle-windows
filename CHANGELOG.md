@@ -1,5 +1,12 @@
 # История изменений Circle Windows Native
 
+## 0.5.1 CI HOTFIX — корректная проверка Inno Setup
+
+- Проверка установщика использует `Start-Process -Wait -PassThru` и реальный `ExitCode`, вместо неинициализированного `$LASTEXITCODE` для GUI EXE.
+- При падении установки CI показывает журнал Inno Setup и сохраняет его как `Circle-Installer-Diagnostics`.
+- Проверяется полнота Flutter Runtime до упаковки и установленного runtime после Inno; добавлен регрессионный Python-тест CI.
+- Изменения не влияют на серверные данные, API, подписи и версию приложения (`0.5.1`).
+
 ## 0.5.1 — GitHub Actions key bootstrap (no local Python)
 
 - Добавлен отдельный workflow `Circle signing key setup` для одноразовой генерации Ed25519 на GitHub Actions.
