@@ -52,8 +52,9 @@ class CircleUpdater {
     }
     final response = await _client.get(manifestUrl).timeout(const Duration(seconds: 15));
     if (response.statusCode == 404) {
-      // Releases are opt-in; no release exists yet.
-      return null;
+      // A missing Release or manifest is NOT proof that the installed version
+      // is current. GitHub Actions artifacts are not published Releases.
+      throw StateError('На GitHub не найден опубликованный релиз с update-manifest.json (HTTP 404). Проверьте Releases, публичный доступ и версию релиза.');
     }
     if (response.statusCode != 200 || response.bodyBytes.length > 32768) {
       throw StateError('GitHub не отдал манифест обновлений (HTTP ${response.statusCode}).');

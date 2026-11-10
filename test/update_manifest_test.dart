@@ -15,6 +15,17 @@ void main() {
     expect(CircleUpdater.githubManifestUri('owner/repo?token=x'), isNull);
   });
 
+  test('HTTP 404 means release was not published, not that app is current', () async {
+    final client = MockClient((_) async => http.Response('Not Found', 404));
+    final updater = CircleUpdater(
+      manifestUrl: Uri.parse('https://github.com/circle-org/circle-windows/releases/latest/download/update-manifest.json'),
+      publicKeyBase64: base64Encode(List<int>.filled(32, 7)),
+      client: client,
+    );
+    await expectLater(updater.check('0.6.0'), throwsStateError);
+    updater.close();
+  });
+
   test('Authenticates release manifest and rejects modified payload', () async {
     final algorithm = Ed25519();
     final pair = await algorithm.newKeyPair();
