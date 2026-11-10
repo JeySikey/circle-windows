@@ -18,6 +18,14 @@ jobs:
         with:
           channel: stable
           cache: true
+      - name: Require signing key before building an update-enabled client
+        shell: pwsh
+        env:
+          CIRCLE_SIGNING_KEY: ${{ secrets.CIRCLE_UPDATE_PRIVATE_KEY_PEM }}
+        run: |
+          if (-not $env:CIRCLE_SIGNING_KEY) {
+            throw 'Missing signing key. Run Actions > Circle signing key setup first (see docs/GITHUB-AUTO-UPDATE.md).'
+          }
       - name: Enable Windows desktop
         run: flutter config --enable-windows-desktop
       - name: Generate Windows runner
@@ -34,6 +42,7 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check cryptography
           python tool/self_test_update.py
+          python tool/test_bootstrap_keys.py
       - name: Analyze code
         run: flutter analyze --no-fatal-infos
       - name: Run tests
@@ -46,8 +55,7 @@ jobs:
           CIRCLE_SIGNING_KEY: ${{ secrets.CIRCLE_UPDATE_PRIVATE_KEY_PEM }}
         run: |
           if (-not $env:CIRCLE_SIGNING_KEY) {
-            'enabled=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            Write-Warning 'No CIRCLE_UPDATE_PRIVATE_KEY_PEM secret; build will work, but secure auto-update requires this one-time setup.'
+            throw 'Missing CIRCLE_UPDATE_PRIVATE_KEY_PEM repository secret'
           } else {
             python -m pip install --disable-pip-version-check cryptography
             $keyFile = Join-Path $env:RUNNER_TEMP 'circle-release-key.pem'
@@ -75,17 +83,17 @@ jobs:
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
-          & $iscc '/DAppVersion=0.5.0' 'installer\Circle.iss'
+          & $iscc '/DAppVersion=0.5.1' 'installer\Circle.iss'
           if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed' }
       - name: Build ZIP for silent in-place upgrades (no installer)
-        run: python tool/build_payload.py --version 0.5.0
+        run: python tool/build_payload.py --version 0.5.1
       - name: Verify signed payload ZIP passes updater safety rules
         shell: pwsh
         run: |
           $zip = Get-ChildItem -Path dist -Filter '*_Payload.zip' | Select-Object -First 1
           if (-not $zip) {throw 'Missing update ZIP'}
           $digest = (Get-FileHash -LiteralPath $zip.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tool/apply_update.ps1 -Archive $zip.FullName -ExpectedSha256 $digest -ExePath "$pwd\build\windows\x64\runner\Release\circle_windows.exe" -ParentPid 999999 -Version 0.5.0 -ValidateOnly
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tool/apply_update.ps1 -Archive $zip.FullName -ExpectedSha256 $digest -ExePath "$pwd\build\windows\x64\runner\Release\circle_windows.exe" -ParentPid 999999 -Version 0.5.1 -ValidateOnly
           if ($LASTEXITCODE -ne 0) {throw 'Updater validation failed'}
       - name: Verify installed runtime contents
         shell: pwsh
@@ -125,7 +133,7 @@ jobs:
           CIRCLE_SIGNING_KEY: ${{ secrets.CIRCLE_UPDATE_PRIVATE_KEY_PEM }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          if ('${{ github.ref_name }}' -ne 'v0.5.0') { throw 'Git tag must match current 0.5.0 version' }
+          if ('${{ github.ref_name }}' -ne 'v0.5.1') { throw 'Git tag must match current 0.5.1 version' }
           if (-not $env:CIRCLE_SIGNING_KEY) { throw 'Missing one-time secret CIRCLE_UPDATE_PRIVATE_KEY_PEM' }
           $keyFile = Join-Path $env:RUNNER_TEMP 'circle-release-key.pem'
           [IO.File]::WriteAllText($keyFile, $env:CIRCLE_SIGNING_KEY)
@@ -134,9 +142,9 @@ jobs:
             $installer = Get-ChildItem dist/*_Setup.exe | Select-Object -First 1
             if (!$payload -or !$installer) {throw 'Release assets absent'}
             $assetUrl = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$($payload.Name)"
-            python tool/sign_release.py --private-key $keyFile --package $payload.FullName --version 0.5.0 --url $assetUrl --output update-manifest.json
+            python tool/sign_release.py --private-key $keyFile --package $payload.FullName --version 0.5.1 --url $assetUrl --output update-manifest.json
             if ($LASTEXITCODE -ne 0) {throw 'Signature step failed'}
-            gh release create '${{ github.ref_name }}' $installer.FullName $payload.FullName 'update-manifest.json' --verify-tag --title 'Circle Windows 0.5.0' --notes 'Native Circle Windows; signed ZIP updates are applied within the installed application and restarted automatically.'
+            gh release create '${{ github.ref_name }}' $installer.FullName $payload.FullName 'update-manifest.json' --verify-tag --title 'Circle Windows 0.5.1' --notes 'Native Circle Windows; signed ZIP updates are applied within the installed application and restarted automatically.'
             if ($LASTEXITCODE -ne 0) {throw 'Release publishing failed'}
           } finally {
             if (Test-Path $keyFile) {Remove-Item -LiteralPath $keyFile -Force}
