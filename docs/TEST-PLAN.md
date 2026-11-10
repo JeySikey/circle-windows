@@ -1,4 +1,11 @@
-# Circle Windows 0.4.1 — план ручных испытаний
+# Circle Windows 0.4.2 — план ручных испытаний
+
+## 0. Проверка запуска (блокирующая)
+- [ ] После установки с `Circle_Windows_0.4.2_Setup.exe` появляется окно авторизации (при отключённом интернете тоже)
+- [ ] Не запускайте один EXE из архива отдельно от DLL и папки `data`
+- [ ] В меню Пуск «Circle - диагностика запуска» сохраняет `last-launch-report.txt`
+- [ ] В случае сбоя присутствует запись в `%LOCALAPPDATA%\Circle\logs\startup.log`, либо диагностика сообщает, что процесс не дошёл до Dart
+- [ ] Установка на свежую Windows 10/11 x64, где нет Visual Studio, не требует самостоятельной загрузки MSVC runtime
 
 ## A. Сборка/установка
 - [ ] GitHub Actions: Resolve dependencies, Analyze, Unit tests, Release build, Inno Setup зелёные

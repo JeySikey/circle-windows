@@ -6,6 +6,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path_provider/path_provider.dart';
 import 'api.dart';
 import 'design.dart';
+import 'startup_log.dart';
 
 /// Authenticated media never receive bearer tokens through a public URL.
 /// Files are downloaded from Circle API, then decoded locally.
@@ -42,12 +43,15 @@ class _CircleMediaState extends State<CircleMedia> {
       final path = '${dir.path}${Platform.pathSeparator}circle_${widget.route}_${widget.id}.$extension';
       final file = File(path);
       await file.writeAsBytes(data, flush: true);
+      // Loading native media libraries is optional; a missing codec must not
+      // stop the entire Circle app before the first screen is visible.
+      MediaKit.ensureInitialized();
       final p = Player();
       final v = widget.mime.startsWith('video/') ? VideoController(p) : null;
       await p.open(Media(file.path));
       if (!mounted) {await p.dispose(); return;}
       setState(() {player = p; controller = v; local = file; playing = true;});
-    } catch (error) {if (mounted) setState(() => preparing = false); if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Медиа: $error')));}
+    } catch (error, stack) {CircleStartupLog.report('media player', error, stack); if (mounted) setState(() => preparing = false); if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Медиа: $error')));}
     finally {if (mounted) setState(() => preparing = false);}
   }
   void _clear() {

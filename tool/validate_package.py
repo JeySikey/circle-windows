@@ -9,6 +9,7 @@ php = Path(__file__).resolve().parents[2] / 'site' / 'api' / 'mobile.php'
 required = [
     'pubspec.yaml', 'lib/main.dart', 'lib/api.dart', 'lib/design.dart',
     'lib/live_room.dart', 'lib/media_view.dart', 'lib/updater.dart',
+    'lib/startup_log.dart', 'tool/package_windows.ps1', 'tool/diagnose_windows.ps1',
     '.github/workflows/windows.yml', 'installer/Circle.iss',
     'assets/circle-mark.png', 'branding/circle.ico', 'README.md',
 ]
@@ -16,7 +17,7 @@ for rel in required:
     if not (root / rel).is_file():
         raise SystemExit(f'Missing required file: {rel}')
 
-version = '0.4.1'
+version = '0.4.2'
 for rel in ['pubspec.yaml', 'lib/main.dart', 'installer/Circle.iss', 'build-installer.ps1', '.github/workflows/windows.yml']:
     if version not in (root / rel).read_text(encoding='utf-8'):
         raise SystemExit(f'Wrong version: {rel}')
@@ -32,6 +33,12 @@ if 'class CircleUserAvatar extends StatefulWidget' not in design_source:
     raise SystemExit('Missing renamed avatar widget')
 if 'errorBuilder: (_, _, _)' in design_source:
     raise SystemExit('Duplicate wildcard arguments in errorBuilder')
+if 'runApp(const CircleApp());' not in main_source:
+    raise SystemExit('Startup regression: main() must render the app without blocking plugins')
+if 'MediaKit.ensureInitialized();' in main_source:
+    raise SystemExit('Startup regression: native codecs cannot block runApp')
+if 'try {' not in main_source[main_source.index('Future<void> restore() async {'):main_source.index('Future<void> login(')]:
+    raise SystemExit('Startup regression: restoring the session must catch plugin failures')
 if php.exists():
     mobile = php.read_text(encoding='utf-8')
     routes = set(re.findall(r"(?:call|upload|media)\('([a-z][a-z0-9-]+)'", (root / 'lib/main.dart').read_text(encoding='utf-8')))

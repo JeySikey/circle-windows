@@ -1,6 +1,6 @@
 #define MyAppName "Circle"
 #ifndef AppVersion
-  #define AppVersion "0.4.1"
+  #define AppVersion "0.4.2"
 #endif
 #ifndef BuildRoot
   #define BuildRoot "..\build\windows\x64\runner\Release"
@@ -28,10 +28,13 @@ RestartApplications=no
 DisableProgramGroupPage=yes
 [Files]
 Source: "{#BuildRoot}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "..\tool\diagnose_windows.ps1"; DestDir: "{app}\tools"; Flags: ignoreversion
+Source: "..\tool\Circle-Diagnostics.cmd"; DestDir: "{app}\tools"; Flags: ignoreversion
 [Icons]
 Name: "{autoprograms}\Circle"; Filename: "{app}\circle_windows.exe"
+Name: "{autoprograms}\Circle - диагностика запуска"; Filename: "{app}\tools\Circle-Diagnostics.cmd"
 Name: "{autodesktop}\Circle"; Filename: "{app}\circle_windows.exe"; Tasks: desktopicon
 [Tasks]
 Name: "desktopicon"; Description: "Создать ярлык на рабочем столе"; GroupDescription: "Дополнительные задачи:"
 [Run]
-Filename: "{app}\circle_windows.exe"; Description: "Запустить Circle"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\circle_windows.exe"; WorkingDir: "{app}"; Description: "Запустить Circle"; Flags: nowait postinstall skipifsilent

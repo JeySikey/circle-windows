@@ -1,10 +1,10 @@
 import 'dart:io';
 import 'dart:async';
+import 'dart:ui' show PlatformDispatcher;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:window_manager/window_manager.dart';
-import 'package:media_kit/media_kit.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'api.dart';
@@ -12,21 +12,51 @@ import 'design.dart';
 import 'media_view.dart';
 import 'updater.dart';
 import 'live_room.dart';
+import 'startup_log.dart';
 
 const secure = FlutterSecureStorage();
 const updateManifest = String.fromEnvironment('CIRCLE_UPDATE_URL');
 const updatePublicKey = String.fromEnvironment('CIRCLE_UPDATE_PUBLIC_KEY');
-const appVersion = '0.4.1';
+const appVersion = '0.4.2';
 
-Future<void> main() async {
+/// Show Flutter immediately: optional platform services must never block startup.
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  MediaKit.ensureInitialized();
-  await windowManager.ensureInitialized();
-  await windowManager.waitUntilReadyToShow(
-    const WindowOptions(size: Size(1390, 870), minimumSize: Size(760, 550), center: true, title: 'Circle — Твой круг. Твои люди.'),
-    () async {await windowManager.show(); await windowManager.focus();},
-  );
+  CircleStartupLog.write('Circle Windows $appVersion: bootstrap started');
+  FlutterError.onError = (details) {
+    CircleStartupLog.report('flutter', details.exception, details.stack);
+    FlutterError.presentError(details);
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    CircleStartupLog.report('platform', error, stack);
+    return true;
+  };
   runApp(const CircleApp());
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    CircleStartupLog.write('First Flutter frame callback reached');
+    unawaited(configureCircleWindow());
+  });
+}
+
+Future<void> configureCircleWindow() async {
+  try {
+    await windowManager.ensureInitialized().timeout(const Duration(seconds: 8));
+    await windowManager.waitUntilReadyToShow(
+      const WindowOptions(
+        size: Size(1390, 870), minimumSize: Size(760, 550),
+        center: true, title: 'Circle — Твой круг. Твои люди.',
+      ),
+      () async {
+        await windowManager.show();
+        await windowManager.focus();
+      },
+    ).timeout(const Duration(seconds: 12));
+    CircleStartupLog.write('Window manager configured');
+  } catch (error, stack) {
+    // A window_manager plugin issue must not prevent Flutter from displaying
+    // its default native window; preserve the reason for troubleshooting.
+    CircleStartupLog.report('window manager', error, stack);
+  }
 }
 
 class CircleApp extends StatefulWidget {
@@ -61,20 +91,30 @@ class _CircleRootState extends State<CircleRoot> {
   String error = '';
   @override void initState() {super.initState(); restore();}
   Future<void> restore() async {
-    final server = await secure.read(key: 'circle_server');
-    final token = await secure.read(key: 'circle_token');
-    if (server != null && token != null) {
-      CircleApi? candidate;
-      try {
+    CircleApi? candidate;
+    try {
+      final server = await secure.read(key: 'circle_server');
+      final token = await secure.read(key: 'circle_token');
+      if (server != null && server.isNotEmpty && token != null && token.isNotEmpty) {
         candidate = CircleApi(server)..token = token;
-        final data = await candidate.call('me');
-        if (mounted) {setState(() {api = candidate; me = obj(data['user']);}); candidate = null; beginIncomingPolling();}
-      } catch (_) {
-        await secure.delete(key: 'circle_token');
-      } finally {candidate?.dispose();}
+        final data = await candidate.call('me').timeout(const Duration(seconds: 15));
+        if (mounted) {
+          setState(() {api = candidate; me = obj(data['user']);});
+          candidate = null;
+          beginIncomingPolling();
+        }
+      }
+    } catch (error, stack) {
+      CircleStartupLog.report('restore session', error, stack);
+      // Do not erase a valid token on temporary network or storage failure.
+      // The sign-in UI remains usable instead of a perpetual loading spinner.
+      if (mounted) setState(() => this.error = 'Не удалось восстановить сессию. Проверьте сеть или войдите снова.');
+    } finally {
+      candidate?.dispose();
+      if (mounted) setState(() => loading = false);
     }
-    if (mounted) setState(() => loading = false);
   }
+
   Future<void> login(String server, String username, String password, String totp) async {
     setState(() {loading = true; error = '';});
     CircleApi? candidate;

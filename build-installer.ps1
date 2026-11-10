@@ -23,8 +23,10 @@ flutter build windows --release @defs
 if ($LASTEXITCODE -ne 0) { throw 'Flutter build failed' }
 $exe = 'build\windows\x64\runner\Release\circle_windows.exe'
 if (-not (Test-Path $exe)) { throw "Missing $exe" }
+& .\tool\package_windows.ps1
+if ($LASTEXITCODE -ne 0) { throw "Windows runtime staging failed" }
 $compiler = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "${env:ProgramFiles}\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $compiler) { throw 'Install Inno Setup 6' }
-& $compiler '/DAppVersion=0.4.1' installer\Circle.iss
+& $compiler '/DAppVersion=0.4.2' installer\Circle.iss
 if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
-Write-Host 'Done: dist\Circle_Windows_0.4.1_Setup.exe'
+Write-Host 'Done: dist\Circle_Windows_0.4.2_Setup.exe'
