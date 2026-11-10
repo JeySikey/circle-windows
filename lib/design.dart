@@ -43,15 +43,15 @@ ThemeData circleTheme({bool light = false}) {
       elevation: 0,
       shape: RoundedRectangleBorder(
         side: BorderSide(color: stroke),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
       ),
     ),
     textTheme: TextTheme(
       headlineMedium: TextStyle(fontSize: 29, fontWeight: FontWeight.w700, color: text, letterSpacing: -.5),
       headlineSmall: TextStyle(fontSize: 23, fontWeight: FontWeight.w700, color: text),
-      titleLarge: TextStyle(fontSize: 19, fontWeight: FontWeight.w700, color: text),
+      titleLarge: TextStyle(fontSize: 19, fontWeight: FontWeight.w700, color: text, letterSpacing: -.25),
       titleMedium: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: text),
-      bodyMedium: TextStyle(fontSize: 14, height: 1.48, color: text),
+      bodyMedium: TextStyle(fontSize: 14, height: 1.52, color: text),
       bodySmall: TextStyle(fontSize: 12, color: muted),
     ),
     inputDecorationTheme: InputDecorationTheme(
@@ -105,10 +105,15 @@ class CircleSurface extends StatelessWidget {
   @override Widget build(BuildContext context) => Container(
     padding: padding,
     decoration: BoxDecoration(
-      color: Theme.of(context).cardTheme.color,
+      gradient: Theme.of(context).brightness == Brightness.dark
+        ? const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight,
+            colors: [Color(0xFF1C1E23), Color(0xFF17191D)])
+        : null,
+      color: Theme.of(context).brightness == Brightness.dark
+        ? null : Theme.of(context).cardTheme.color,
       borderRadius: BorderRadius.circular(radius),
       border: Border.all(color: accent ? circleGold.withValues(alpha: .5) : Theme.of(context).dividerColor),
-      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .08), blurRadius: 20, offset: const Offset(0, 8))],
+      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .13), blurRadius: 24, offset: const Offset(0, 9))],
     ), child: child);
 }
 
@@ -148,7 +153,7 @@ class _CircleUserAvatarState extends State<CircleUserAvatar> {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: circleGold.withValues(alpha: .48), width: 1.5), color: circleGold.withValues(alpha: .13)),
       child: future == null ? Center(child: Text(initials, style: TextStyle(fontSize: widget.radius * .8, fontWeight: FontWeight.w800, color: circleGoldBright))) : FutureBuilder<List<int>>(
-        future: future, builder: (context, snapshot) => snapshot.hasData ? Image.memory(Uint8List.fromList(snapshot.data!), fit: BoxFit.cover, gaplessPlayback: true, errorBuilder: (imageContext, imageError, stackTrace) => Center(child: Text(initials, style: const TextStyle(color: circleGoldBright)))) : Center(child: Text(initials, style: const TextStyle(color: circleGoldBright))),
+        future: future, builder: (context, snapshot) => snapshot.hasData ? Image.memory(snapshot.data! is Uint8List ? snapshot.data! as Uint8List : Uint8List.fromList(snapshot.data!), fit: BoxFit.cover, cacheWidth: (widget.radius * 2 * MediaQuery.devicePixelRatioOf(context)).ceil(), gaplessPlayback: true, errorBuilder: (imageContext, imageError, stackTrace) => Center(child: Text(initials, style: const TextStyle(color: circleGoldBright)))) : Center(child: Text(initials, style: const TextStyle(color: circleGoldBright))),
       ),
     );
   }
@@ -194,6 +199,6 @@ class _CircleRemoteImageState extends State<CircleRemoteImage> {
   void _load() {request = widget.api.media(widget.route, widget.id);}
   @override Widget build(BuildContext context) => FutureBuilder<List<int>>(future: request, builder: (context, snapshot) {
     if (!snapshot.hasData) return const SizedBox.shrink();
-    return Image.memory(Uint8List.fromList(snapshot.data!), width: double.infinity, height: double.infinity, fit: widget.fit, gaplessPlayback: true);
+    return Image.memory(snapshot.data! is Uint8List ? snapshot.data! as Uint8List : Uint8List.fromList(snapshot.data!), width: double.infinity, height: double.infinity, fit: widget.fit, cacheWidth: 1800, gaplessPlayback: true);
   });
 }

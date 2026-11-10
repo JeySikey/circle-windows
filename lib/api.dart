@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:async';
 import 'package:http/http.dart' as http;
 
 class CircleError implements Exception {
@@ -17,6 +18,13 @@ class CircleApi {
   final Uri base;
   String? token;
   final http.Client _client = http.Client();
+  // Avatars / profile cover: coalesced requests and a bounded in-memory LRU.
+  // Never cache messages or video files; prevents memory growth and scroll jank.
+  final Map<String, Future<List<int>>> _imageCache = {};
+  void clearMedia([String? route]) {
+    if (route == null) {_imageCache.clear(); return;}
+    _imageCache.removeWhere((key, _) => key.startsWith('$route:'));
+  }
   Uri uri(String route, [Map<String, String> query = const {}]) => base.replace(path: '/api/mobile.php', queryParameters: {'route': route, ...query});
 
   Future<Map<String, dynamic>> call(String route, {Map<String, String> query = const {}, Map<String, dynamic>? body, bool auth = true}) async {
@@ -31,10 +39,23 @@ class CircleApi {
           : await _client.post(uri(route, query), headers: {...headers, 'Content-Type': 'application/json'}, body: jsonEncode(body)).timeout(const Duration(seconds: 25));
       final decoded = jsonDecode(utf8.decode(response.bodyBytes));
       if (decoded is! Map<String, dynamic>) throw CircleError('Некорректный ответ сервера');
-      if (response.statusCode >= 400 || decoded['ok'] != true) throw CircleError('${decoded['message'] ?? decoded['error'] ?? 'HTTP ${response.statusCode}'}');
+      if (response.statusCode >= 400 || decoded['ok'] != true) {
+        final code = '${decoded['error'] ?? ''}';
+        final hint = switch (code) {
+          'SERVER_ERROR' => 'Ошибка сервера Circle (HTTP 500). Для профиля требуется Mobile API hotfix; подробности — в журнале PHP.',
+          'UNAUTHORIZED' => 'Сессия истекла. Войдите заново.',
+          'FEATURE_DISABLED' => 'Эта функция отключена администратором сайта.',
+          'FORBIDDEN' => 'Недостаточно прав для этого действия.',
+          'RATE_LIMIT' => 'Слишком много запросов. Повторите позже.',
+          _ => '${decoded['message'] ?? decoded['error'] ?? 'HTTP ${response.statusCode}'}',
+        };
+        throw CircleError(hint);
+      }
       return decoded;
-    } on CircleError { rethrow; } on SocketException { throw CircleError('Нет соединения с сервером');
-    } on FormatException { throw CircleError('Сервер вернул не-JSON ответ');
+    } on CircleError { rethrow;
+    } on TimeoutException { throw CircleError('Сервер долго не отвечает. Проверьте подключение.');
+    } on SocketException { throw CircleError('Нет соединения с сервером');
+    } on FormatException { throw CircleError('Сервер вернул некорректный JSON');
     } catch (e) { throw CircleError('Ошибка запроса: $e'); }
   }
 
@@ -51,12 +72,55 @@ class CircleApi {
   }
 
   // Media endpoints require bearer authorization; never expose the token in URLs.
-  Future<List<int>> media(String route, int id) async {
-    final r = await _client.get(uri(route, {'id':'$id'}), headers: {'Authorization':'Bearer $token'}).timeout(const Duration(seconds: 45));
-    if (r.statusCode != 200) throw CircleError('Медиа недоступно: ${r.statusCode}');
-    return r.bodyBytes;
+  Future<List<int>> media(String route, int id) {
+    if (token == null) return Future.error(CircleError('Требуется вход в аккаунт'));
+    final cacheable = {'avatar', 'profile-cover', 'community-icon', 'community-banner'}.contains(route);
+    final key = '$route:$id';
+    if (cacheable && _imageCache.containsKey(key)) return _imageCache[key]!;
+    final request = _client.get(uri(route, {'id': '$id'}),
+        headers: {'Authorization': 'Bearer $token'}).timeout(const Duration(seconds: 45)).then((r) {
+      if (r.statusCode != 200) throw CircleError('Медиа недоступно: HTTP ${r.statusCode}');
+      if (r.bodyBytes.length > 12 * 1024 * 1024 && cacheable) {
+        throw CircleError('Изображение слишком большое');
+      }
+      return r.bodyBytes;
+    });
+    if (cacheable) {
+      if (_imageCache.length >= 60) _imageCache.remove(_imageCache.keys.first);
+      _imageCache[key] = request;
+      request.then((_) {}, onError: (Object _) { _imageCache.remove(key); });
+    }
+    return request;
   }
-  void dispose() => _client.close();
+  /// Stream large audio/video attachments directly to disk instead of buffering
+  /// every clip in RAM while scrolling the feed or messages.
+  Future<void> downloadMediaToFile(String route, int id, File destination,
+      {int maxBytes = 200 * 1024 * 1024}) async {
+    if (token == null) throw CircleError('Требуется вход в аккаунт');
+    final request = http.Request('GET', uri(route, {'id': '$id'}))
+      ..headers['Authorization'] = 'Bearer $token';
+    final response = await _client.send(request).timeout(const Duration(seconds: 35));
+    if (response.statusCode != 200) {
+      await response.stream.drain<void>();
+      throw CircleError('Не удалось загрузить медиа: HTTP ${response.statusCode}');
+    }
+    final sink = destination.openWrite();
+    var received = 0;
+    try {
+      await for (final chunk in response.stream.timeout(const Duration(seconds: 60))) {
+        received += chunk.length;
+        if (received > maxBytes) throw CircleError('Медиафайл превышает допустимый размер');
+        sink.add(chunk);
+      }
+    } catch (_) {
+      await sink.close();
+      try { await destination.delete(); } catch (_) {}
+      rethrow;
+    }
+    await sink.close();
+    if (received == 0) throw CircleError('Медиафайл пуст');
+  }
+  void dispose() { _imageCache.clear(); _client.close(); }
 }
 
 List<Map<String, dynamic>> items(Map<String, dynamic> value) => (value['items'] as List? ?? []).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();

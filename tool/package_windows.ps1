@@ -32,5 +32,11 @@ Get-ChildItem -Path $crt -Filter '*.dll' -File | ForEach-Object {
 foreach ($name in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
   if (-not (Test-Path (Join-Path $release $name))) { throw "CRT staging failed: $name" }
 }
+# Both installer and future in-place payload must carry the updater itself.
+$tools = Join-Path $release 'tools'
+New-Item -Path $tools -ItemType Directory -Force | Out-Null
+foreach ($item in @('apply_update.ps1','diagnose_windows.ps1','Circle-Diagnostics.cmd')) {
+  Copy-Item (Join-Path $PSScriptRoot $item) (Join-Path $tools $item) -Force
+}
 Write-Host "Windows payload ready: $release"
 Write-Host "VC++ runtime copied from: $crt"

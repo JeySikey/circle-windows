@@ -1,26 +1,27 @@
-# Сопоставление Native 0.4.1 и Circle server 5.2.3
+# Возможности Circle Windows Native 0.5.0 и сайта Circle 5.2.3
 
-Источник: `Circle_5.2.3_FULL(1).zip`, конкретно `api/mobile.php`. Исходники сервера не изменены.
+Проверено по доступным исходникам `Circle_5.2.3_FULL(1).zip` и companion hotfix `api/mobile.php`. Действующая база на хостинге и LiveKit в этой среде недоступны — статическое соответствие не равно испытанию.
 
-| Возможность | Маршруты | Статус клиента |
+| Возможность | Mobile API | Состояние нативного клиента |
 |---|---|---|
-| Авторизация, TOTP, выход | login, me, logout | Реализован код |
-| Лента, реакции, комментарии, ответы | feed, post-create, post-upload, post-like, post-comments, post-comment | Реализован код |
-| Истории, медиа | stories, story-create, story-media, post-media | Реализован код изображения/видео |
-| Профиль, аватар, обложка, посты | profile, profile-save, avatar-upload, profile-cover, user-profile, profile-posts | Основные экраны, без полного редактора профиля |
-| Награды | reward-options, reward-select | Выбор разрешённых наград |
-| Друзья | friends | Список и просмотр профилей; заявки/поиск отсутствуют в API |
-| Переписка | conversations, messages, message-upload, attachment, message-reaction | Текст, вложения, WAV запись/отправка/воспроизведение, ответы, реакции |
-| Сообщества и инвайты | communities, community, community-manage, invite-preview, invite-join, community-feed, community-post-create | Членство по приглашению, новости, базовое управление |
-| Текстовые каналы | channel-messages, channel-send, channel-react | Реализован код |
-| Звонки LiveKit | mobile-call-start/accept/poll/token/finish/decline, mobile-voice-token | Нативный код; тестов Windows + сервер пока нет |
-| Уведомления | notifications, notification-read, notification-settings | Лента и настройки. Нет Windows push |
-| Кинозалы | cinema-rooms | Только список (нет серверного API управления сессией) |
-| Административная панель | admin-summary | Только статистика и очередь модерации |
-| Автообновления | GitHub signed manifest (вне API) | Реализован код, нужна настройка ключа и публикация |
+| Вход / 2FA / выход | login, me, logout | Нативный интерфейс, Windows Secure Storage |
+| Регистрация и восстановление | register, forgot-password | Нативные формы, письмо зависит от SMTP |
+| Главная, реакции | feed, post-create, post-upload, post-like | Нативная лента, публикации, фото/видео |
+| Комментарии, ответы | post-comments, post-comment | Нативный интерфейс |
+| Истории | stories, story-create, story-media | Просмотр, создание |
+| Свой профиль, обложка | profile, profile-save, avatar-upload, profile-cover | Профиль, редактирование, резервный `me` при HTTP 500 |
+| Профили и публикации других | user-profile, profile-posts | Профили и лента публикаций |
+| Друзья и заявки | friends, friend-requests, people-search, friend-request, friend-respond, friend-remove, friend-request-cancel | Полный базовый цикл; новые маршруты только с серверным hotfix |
+| Личные сообщения | conversations, messages, message-upload, attachment, message-reaction | Нативные диалоги, вложения, аудио, реакции, ответы |
+| Сообщества, приглашения | communities, community, community-manage, invite-preview, invite-join | Вступление по ссылке, основные разделы |
+| Текстовые каналы | channel-messages, channel-send, channel-react | Нативный интерфейс |
+| Аудио/видео звонки | mobile-call-* и mobile-voice-token | Интеграционный код LiveKit; на Windows с реальными ключами не проверен |
+| Уведомления | notifications, notification-read, notification-settings | В приложении; фоновых Windows Push нет |
+| Награды | reward-options, reward-select | Выбор доступных наград |
+| Кинозалы | cinema-rooms | Просмотр списка; не управление сеансами |
+| Администрирование | admin-summary | Обзор; не полноценная веб-панель |
+| Автообновления | GitHub Releases, не сайт | Подписанная проверка, ZIP-замена и перезапуск; реальное Windows испытание требуется |
 
-## Что потребует дальнейшего расширения сервера
+## Пока не эквивалентно сайту
 
-Полный редактор сообществ (оформление/роли/права/приглашения), модерация и загрузка списков запрещённых слов, управление устройствами, дружеские запросы и поиск, редактирование и удаление постов, репосты, фоновая доставка Windows push, управление совместным просмотром, групповые личные вызовы и весь набор административных страниц. У этих действий нет подтверждённых полноценных Mobile API в архиве 5.2.3.
-
-Не заменять такие функции прямыми SQL-запросами клиента: это нарушило бы модель доступа и безопасность.
+Расширенная панель модерации, списки запрещённых материалов, обработка фото/видео AI, все настройки ролей сообществ, групповые конференции, управление устройствами, повсеместное редактирование/удаление постов, Windows push и полноценное управление кинозалами не имеют завершённой нативной реализации. Требуют документированных, защищённых Mobile API с проверкой прав на PHP-сервере. Не следует выдавать их за уже готовые.

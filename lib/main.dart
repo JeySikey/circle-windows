@@ -16,8 +16,14 @@ import 'startup_log.dart';
 
 const secure = FlutterSecureStorage();
 const updateManifest = String.fromEnvironment('CIRCLE_UPDATE_URL');
+const updateRepository = String.fromEnvironment('CIRCLE_GITHUB_REPO');
 const updatePublicKey = String.fromEnvironment('CIRCLE_UPDATE_PUBLIC_KEY');
-const appVersion = '0.4.2';
+const appVersion = '0.5.0';
+
+Uri? get circleUpdateUri => updateManifest.trim().isNotEmpty
+    ? Uri.tryParse(updateManifest.trim())
+    : CircleUpdater.githubManifestUri(updateRepository.trim());
+
 
 /// Show Flutter immediately: optional platform services must never block startup.
 void main() {
@@ -86,10 +92,47 @@ class _CircleRootState extends State<CircleRoot> {
   bool loading = true;
   bool collapsed = false;
   bool incomingDialog = false;
+  bool incomingPolling = false;
   Timer? incomingTimer;
   int page = 0;
+  final Set<int> visited = {0};
   String error = '';
-  @override void initState() {super.initState(); restore();}
+  @override void initState() {
+    super.initState();
+    restore();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(const Duration(seconds: 3), () {
+        if (mounted) checkUpdatesOnLaunch();
+      });
+    });
+  }
+
+  Future<void> checkUpdatesOnLaunch() async {
+    final uri = circleUpdateUri;
+    if (uri == null || updatePublicKey.isEmpty || incomingDialog || !mounted) return;
+    final updater = CircleUpdater(manifestUrl: uri, publicKeyBase64: updatePublicKey);
+    try {
+      final info = await updater.check(appVersion);
+      if (!mounted || info == null) return;
+      final accepted = await showDialog<bool>(
+        context: context,
+        barrierDismissible: true,
+        builder: (dialog) => AlertDialog(
+          title: Row(children: [const Icon(Icons.auto_awesome, color: circleGold),
+            const SizedBox(width: 12), Text('Circle ${info.version}')]),
+          content: const Text('Доступно обновление. Скачать проверенные файлы приложения, установить их без переустановки и перезапустить Circle?'),
+          actions: [TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Позже')),
+            FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Обновить'))],
+        ),
+      );
+      if (accepted == true && mounted) {
+        openSecondary('Обновление Circle', UpdatesScreen(initialRelease: info));
+      }
+    } catch (e, stack) {
+      // Update availability must never break login or feed rendering.
+      CircleStartupLog.report('startup update check', e, stack);
+    } finally {updater.close();}
+  }
   Future<void> restore() async {
     CircleApi? candidate;
     try {
@@ -133,7 +176,7 @@ class _CircleRootState extends State<CircleRoot> {
     await secure.delete(key: 'circle_token');
     incomingTimer?.cancel(); incomingTimer = null;
     api?.dispose();
-    if (mounted) setState(() {api = null; me = {}; page = 0;});
+    if (mounted) setState(() {api = null; me = {}; page = 0; visited..clear()..add(0);});
   }
   void openSecondary(String title, Widget child) {
     Navigator.push(context, MaterialPageRoute<void>(builder: (_) => CirclePage(title: title, child: child)));
@@ -143,7 +186,8 @@ class _CircleRootState extends State<CircleRoot> {
     incomingTimer = Timer.periodic(const Duration(seconds: 9), (_) => pollIncoming());
   }
   Future<void> pollIncoming() async {
-    if (api == null || incomingDialog || !mounted) return;
+    if (api == null || incomingDialog || incomingPolling || !mounted) return;
+    incomingPolling = true;
     final client = api!;
     try {
       final response = await client.call('mobile-call-poll');
@@ -171,7 +215,7 @@ class _CircleRootState extends State<CircleRoot> {
         await client.call('mobile-call-decline', body: {'call_id': callId, 'notification_id': rawId < 0 ? -rawId : rawId});
       }
     } catch (_) { /* Polling must not interrupt navigation when calls are disabled. */ }
-    finally {incomingDialog = false;}
+    finally {incomingDialog = false; incomingPolling = false;}
   }
   @override void dispose() {incomingTimer?.cancel(); api?.dispose(); super.dispose();}
   @override Widget build(BuildContext context) {
@@ -181,20 +225,26 @@ class _CircleRootState extends State<CircleRoot> {
     final small = MediaQuery.sizeOf(context).width < 970;
     final mini = small || collapsed;
     final width = mini ? 78.0 : 246.0;
-    final screens = [
-      FeedScreen(client), ProfileScreen(client), MessengerScreen(client, me: me), FriendsScreen(client),
+    final screens = <Widget>[
+      if (visited.contains(0)) FeedScreen(client) else const SizedBox.shrink(),
+      if (visited.contains(1)) ProfileScreen(client) else const SizedBox.shrink(),
+      if (visited.contains(2)) MessengerScreen(client, me: me) else const SizedBox.shrink(),
+      if (visited.contains(3)) FriendsScreen(client) else const SizedBox.shrink(),
     ];
     final names = ['Главная', 'Профиль', 'Мессенджер', 'Друзья'];
     final icons = [Icons.home_rounded, Icons.account_circle_outlined, Icons.forum_outlined, Icons.people_outline_rounded];
     return Scaffold(body: Row(children: [
       AnimatedContainer(duration: const Duration(milliseconds: 180), width: width,
-        decoration: BoxDecoration(color: widget.light ? const Color(0xFFEAE5DC) : circleSidebar,
+        decoration: BoxDecoration(
+          gradient: widget.light ? null : const LinearGradient(begin: Alignment.topCenter,
+            end: Alignment.bottomCenter, colors: [Color(0xFF151619), Color(0xFF111215)]),
+          color: widget.light ? const Color(0xFFEAE5DC) : null,
           border: Border(right: BorderSide(color: Theme.of(context).dividerColor))),
         child: SafeArea(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Padding(padding: EdgeInsets.fromLTRB(mini ? 16 : 19, 24, 8, 34), child: CircleLogo(compact: mini, size: 43)),
           for (var i = 0; i < names.length; i++) Padding(
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 7),
-            child: Tooltip(message: names[i], child: InkWell(borderRadius: BorderRadius.circular(13), onTap: () => setState(() => page = i),
+            child: Tooltip(message: names[i], child: InkWell(borderRadius: BorderRadius.circular(13), onTap: () => setState(() {page = i; visited.add(i);}),
               child: AnimatedContainer(duration: const Duration(milliseconds: 180), height: 51,
                 padding: EdgeInsets.symmetric(horizontal: mini ? 13 : 17),
                 decoration: BoxDecoration(
@@ -215,13 +265,19 @@ class _CircleRootState extends State<CircleRoot> {
           if (['OWNER', 'ADMIN'].contains('${me['platform_role'] ?? ''}'.toUpperCase()))
             _secondaryNav(mini, Icons.admin_panel_settings_outlined, 'Администрирование', () => openSecondary('Администрирование', AdminSummaryScreen(client))),
           _secondaryNav(mini, Icons.settings_outlined, 'Обновления', () => openSecondary('Обновления', const UpdatesScreen())),
-          const SizedBox(height: 16),
-          Padding(padding: const EdgeInsets.all(12), child: InkWell(onTap: () => setState(() => page = 1), borderRadius: BorderRadius.circular(13),
+          if (!mini) Padding(padding: const EdgeInsets.fromLTRB(21, 8, 10, 3), child: Text('CIRCLE WINDOWS · $appVersion',
+            style: const TextStyle(color: circleMuted, fontSize: 9, letterSpacing: 1.5))),
+          const SizedBox(height: 10),
+          Padding(padding: const EdgeInsets.all(12), child: InkWell(onTap: () => setState(() {page = 1; visited.add(1);}), borderRadius: BorderRadius.circular(13),
             child: Container(padding: const EdgeInsets.all(9), decoration: BoxDecoration(borderRadius: BorderRadius.circular(13), color: circleGold.withValues(alpha: .07)),
               child: Row(children: [CircleUserAvatar(api: client, user: me, radius: 19), if (!mini) ...[const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label(me), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)), Text('@${me['username'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, color: circleMuted))]))]])))),
         ]))),
-      Expanded(child: Column(children: [
-        Container(height: 72, decoration: BoxDecoration(color: Theme.of(context).cardTheme.color, border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor))),
+      Expanded(child: DecoratedBox(decoration: BoxDecoration(
+        gradient: widget.light ? null : const RadialGradient(center: Alignment(0.0, -1.3),
+          radius: 1.55, colors: [Color(0xFF24211F), Color(0xFF101113)])),
+        child: Column(children: [
+        Container(height: 72, decoration: BoxDecoration(color: Theme.of(context).cardTheme.color,
+          border: Border(bottom: BorderSide(color: circleGold.withValues(alpha: .23)))),
           padding: const EdgeInsets.symmetric(horizontal: 23), child: Row(children: [
             IconButton(tooltip: mini && small ? 'Навигация свёрнута' : 'Свернуть боковую панель', onPressed: small ? null : () => setState(() => collapsed = !collapsed), icon: Icon(mini ? Icons.menu_open : Icons.menu)),
             const SizedBox(width: 12), Expanded(child: Text(names[page], style: Theme.of(context).textTheme.titleLarge)),
@@ -234,7 +290,7 @@ class _CircleRootState extends State<CircleRoot> {
               child: Padding(padding: const EdgeInsets.only(left: 9), child: CircleUserAvatar(api: client, user: me, radius: 17))),
           ])),
         Expanded(child: IndexedStack(index: page, children: screens)),
-      ])),
+      ]))),
     ]));
   }
   Widget _secondaryNav(bool mini, IconData icon, String title, VoidCallback tap) => Padding(
@@ -292,12 +348,89 @@ class _LoginScreenState extends State<LoginScreen> {
             TextField(controller: totp, decoration: const InputDecoration(labelText: 'Код 2FA (при необходимости)', prefixIcon: Icon(Icons.shield_outlined))),
             if (widget.error.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 14), child: Text(widget.error, style: const TextStyle(color: circleRed))),
             const SizedBox(height: 24), SizedBox(width: double.infinity, child: FilledButton(onPressed: _submit, child: const Padding(padding: EdgeInsets.all(6), child: Text('Войти в Circle')))),
-            const SizedBox(height: 20), const Center(child: Text('Нативное приложение для Windows', style: TextStyle(color: circleMuted, fontSize: 11))),
+            const SizedBox(height: 15), Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              TextButton(onPressed: () => Navigator.push(context, MaterialPageRoute<void>(
+                builder: (_) => AuthSupportScreen(server: host.text.trim(), register: true))),
+                child: const Text('Создать аккаунт')),
+              const SizedBox(width: 14),
+              TextButton(onPressed: () => Navigator.push(context, MaterialPageRoute<void>(
+                builder: (_) => AuthSupportScreen(server: host.text.trim(), register: false))),
+                child: const Text('Забыли пароль?')),
+            ]),
+            const SizedBox(height: 12), const Center(child: Text('Circle · Нативный клиент для Windows', style: TextStyle(color: circleMuted, fontSize: 11))),
           ]))),
         ])),
     )));
   }
   void _submit() {widget.onLogin(host.text.trim(), user.text.trim(), pass.text, totp.text.trim());}
+}
+
+/// Account creation and password recovery are native API screens.
+class AuthSupportScreen extends StatefulWidget {
+  const AuthSupportScreen({super.key, required this.server, required this.register});
+  final String server;
+  final bool register;
+  @override State<AuthSupportScreen> createState() => _AuthSupportScreenState();
+}
+class _AuthSupportScreenState extends State<AuthSupportScreen> {
+  final name = TextEditingController();
+  final email = TextEditingController();
+  final nickname = TextEditingController();
+  final password = TextEditingController();
+  bool busy = false;
+  String message = '';
+  @override void dispose() {
+    for (final field in [name, email, nickname, password]) {field.dispose();}
+    super.dispose();
+  }
+  Future<void> submit() async {
+    if (busy) return;
+    setState(() {busy = true; message = '';});
+    CircleApi? api;
+    try {
+      api = CircleApi(widget.server);
+      final result = await api.call(widget.register ? 'register' : 'forgot-password',
+        auth: false, body: widget.register ? {
+          'username': nickname.text.trim(), 'display_name': name.text.trim(),
+          'email': email.text.trim(), 'password': password.text,
+        } : {'email': email.text.trim()});
+      if (!mounted) return;
+      setState(() => message = widget.register
+        ? result['email_verification'] == true
+          ? 'Аккаунт создан. Подтверди адрес электронной почты и войди.'
+          : 'Аккаунт создан. Теперь можно войти.'
+        : 'Если аккаунт существует, на почту отправлено письмо.');
+    } catch (e) {if (mounted) setState(() => message = '$e');}
+    finally {api?.dispose(); if (mounted) setState(() => busy = false);}
+  }
+  @override Widget build(BuildContext context) => CirclePage(
+    title: widget.register ? 'Регистрация' : 'Восстановление доступа',
+    child: Center(child: SingleChildScrollView(padding: const EdgeInsets.all(24),
+      child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 480),
+        child: CircleSurface(accent: true, padding: const EdgeInsets.all(28),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
+            children: [const CircleLogo(size: 42), const SizedBox(height: 26),
+              Text(widget.register ? 'Стань частью круга' : 'Верни доступ к Circle',
+                style: Theme.of(context).textTheme.headlineSmall),
+              const SizedBox(height: 12),
+              if (widget.register) ...[
+                TextField(controller: name, maxLength: 60, decoration: const InputDecoration(labelText: 'Отображаемое имя')),
+                const SizedBox(height: 8),
+                TextField(controller: nickname, maxLength: 24, decoration: const InputDecoration(labelText: 'Никнейм (латиница)')),
+                const SizedBox(height: 8),
+              ],
+              TextField(controller: email, keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(labelText: 'Электронная почта')),
+              if (widget.register) ...[
+                const SizedBox(height: 15),
+                TextField(controller: password, obscureText: true,
+                  decoration: const InputDecoration(labelText: 'Пароль (минимум 8 символов)')),
+              ],
+              if (message.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 15), child: Text(message)),
+              const SizedBox(height: 22), SizedBox(width: double.infinity,
+                child: FilledButton(onPressed: busy ? null : submit,
+                  child: Text(busy ? 'Отправка...' : widget.register ? 'Зарегистрироваться' : 'Восстановить доступ'))),
+            ]))))));
 }
 
 void notify(BuildContext context, String message) {
@@ -336,7 +469,12 @@ class _ApiListState extends State<ApiList> {
     final data = snapshot.data!;
     return RefreshIndicator(onRefresh: () async {refresh(); await future;}, child: data.isEmpty
       ? ListView(children: [SizedBox(height: 350, child: CircleEmpty(title: widget.emptyTitle, icon: Icons.inbox_outlined))])
-      : ListView(padding: widget.padding, children: [for (final item in data) Padding(padding: const EdgeInsets.only(bottom: 12), child: widget.itemBuilder(context, item, refresh))]));
+      : ListView.builder(padding: widget.padding, itemCount: data.length,
+          cacheExtent: 300,
+          itemBuilder: (context, index) => Padding(
+            key: ValueKey('${widget.route}-${identifier(data[index]['id'])}'),
+            padding: const EdgeInsets.only(bottom: 12),
+            child: widget.itemBuilder(context, data[index], refresh))));
   });
 }
 
@@ -503,7 +641,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
   int avatarVersion = 0;
   late Future<Map<String, dynamic>> profile;
   @override void initState() {super.initState(); reload();}
-  void reload() {profile = widget.api.call('profile');}
+  void reload() {profile = _readProfile();}
+  Future<Map<String, dynamic>> _readProfile() async {
+    try { return await widget.api.call('profile'); }
+    on CircleError catch (error) {
+      if (!error.message.contains('HTTP 500')) rethrow;
+      // Servers still on the unpatched Mobile API may throw during optional
+      // rewards/verification queries. Show account details instead of a blank UI.
+      final minimal = await widget.api.call('me');
+      return {'ok': true, 'user': minimal['user'], 'degraded': true};
+    }
+  }
   Future<void> edit(Map<String, dynamic> data) async {
     final person = obj(data['user']);
     if (!mounted) return;
@@ -523,6 +671,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (picked?.files.single.path == null) return;
     try {
       await widget.api.upload('avatar-upload', File(picked!.files.single.path!), field: 'avatar');
+      widget.api.clearMedia('avatar');
       if (mounted) setState(() {avatarVersion++; reload();});
     } catch (e) {if (mounted) notify(context, '$e');}
   }
@@ -533,6 +682,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final person = obj(data['user']);
     final counts = obj(data['counts']);
     return Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1030), child: ListView(padding: const EdgeInsets.fromLTRB(24, 26, 24, 35), children: [
+      if (data['degraded'] == true) Padding(padding: const EdgeInsets.only(bottom: 16), child: CircleSurface(accent: true, child: const Text('Профиль открыт в ограниченном режиме: серверный Mobile API требует совместимого исправления. Данные аккаунта сохранены.', style: TextStyle(color: circleGoldBright)))),
       CircleSurface(padding: EdgeInsets.zero, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Container(height: 195, decoration: BoxDecoration(borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
           gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [const Color(0xFF282521), circleGold.withValues(alpha: .22), const Color(0xFF141519)])),
@@ -571,32 +721,130 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _counter(String value, String text) => Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Column(children: [Text(value, style: const TextStyle(color: circleGoldBright, fontSize: 22, fontWeight: FontWeight.w800)), const SizedBox(height: 5), Text(text, style: const TextStyle(color: circleMuted, fontSize: 12))]));
 }
 
-class FriendsScreen extends StatelessWidget {
+/// Native friends, requests and people search. These routes ship in the
+/// companion Mobile API 5.2.3 compatibility patch, not in the old server.
+class FriendsScreen extends StatefulWidget {
   const FriendsScreen(this.api, {super.key});
   final CircleApi api;
-  @override Widget build(BuildContext context) => Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1100), child: Column(children: [
-    const Padding(padding: EdgeInsets.fromLTRB(24, 27, 24, 16), child: CircleSection(title: 'Друзья', subtitle: 'Люди, с которыми ты на связи')),
-    Expanded(child: ApiList(api: api, route: 'friends', emptyTitle: 'Пока нет друзей', itemBuilder: (context, person, refresh) => CircleSurface(padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14), child: Row(children: [
-      CircleUserAvatar(api: api, user: person, radius: 25), const SizedBox(width: 15),
-      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label(person), style: Theme.of(context).textTheme.titleMedium), const SizedBox(height: 4), Text('@${person['username'] ?? ''}', style: Theme.of(context).textTheme.bodySmall)])),
-      OutlinedButton.icon(onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => PublicProfile(api, identifier(person['id'])))), icon: const Icon(Icons.person_outline, size: 16), label: const Text('Профиль')),
-    ])))),
-  ])));
+  @override State<FriendsScreen> createState() => _FriendsScreenState();
 }
-class PublicProfile extends StatelessWidget {
+class _FriendsScreenState extends State<FriendsScreen> {
+  int tab = 0;
+  int revision = 0;
+  final search = TextEditingController();
+  Timer? searchDebounce;
+  String term = '';
+  @override void dispose() {searchDebounce?.cancel(); search.dispose(); super.dispose();}
+
+  Future<void> act(String route, Map<String, dynamic> body) async {
+    try {
+      await widget.api.call(route, body: body);
+      if (mounted) {setState(() => revision++); notify(context, 'Изменения сохранены');}
+    } catch (e) {if (mounted) notify(context, '$e');}
+  }
+  void view(Map<String, dynamic> person) {
+    Navigator.push(context, MaterialPageRoute<void>(
+      builder: (_) => PublicProfile(widget.api, identifier(person['id']))));
+  }
+  Widget personTile(Map<String, dynamic> person, {Widget? action}) => CircleSurface(
+    padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 14),
+    child: Row(children: [CircleUserAvatar(api: widget.api, user: person, radius: 24),
+      const SizedBox(width: 14), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label(person), overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 3), Text('@${person['username'] ?? ''}',
+          overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
+      ])),
+      if (action != null) action,
+      IconButton(tooltip: 'Открыть профиль', icon: const Icon(Icons.chevron_right_rounded),
+        onPressed: () => view(person)),
+    ]));
+  @override Widget build(BuildContext context) => Center(child: ConstrainedBox(
+    constraints: const BoxConstraints(maxWidth: 1080),
+    child: Column(children: [
+      const Padding(padding: EdgeInsets.fromLTRB(24, 27, 24, 17), child: CircleSection(
+        title: 'Друзья', subtitle: 'Знакомые, заявки и поиск людей в твоём круге')),
+      Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Row(children: [
+        for (final item in [(0, 'Мои друзья', Icons.people_alt_outlined),
+          (1, 'Заявки', Icons.person_add_alt_1_outlined),
+          (2, 'Найти людей', Icons.search_rounded)])
+          Padding(padding: const EdgeInsets.only(right: 9), child: ChoiceChip(
+            label: Text(item.$2), avatar: Icon(item.$3, size: 17,
+              color: tab == item.$1 ? circleGoldBright : circleMuted),
+            selected: tab == item.$1, onSelected: (_) => setState(() => tab = item.$1))),
+      ])),
+      if (tab == 2) Padding(padding: const EdgeInsets.fromLTRB(24, 14, 24, 4), child: TextField(
+        controller: search, decoration: const InputDecoration(
+          hintText: 'Имя или никнейм (от 2 символов)', prefixIcon: Icon(Icons.search_rounded)),
+        onChanged: (value) {
+          searchDebounce?.cancel();
+          searchDebounce = Timer(const Duration(milliseconds: 350), () {
+            if (mounted) setState(() => term = value.trim());
+          });
+        },
+      )),
+      const SizedBox(height: 12),
+      Expanded(child: tab == 0
+        ? ApiList(key: ValueKey('friends-$revision'), api: widget.api,
+            route: 'friends', emptyTitle: 'В твоём круге пока нет друзей',
+            itemBuilder: (context, person, refresh) => personTile(person, action: PopupMenuButton<String>(
+              tooltip: 'Действия', icon: const Icon(Icons.more_horiz_rounded),
+              onSelected: (command) {if (command == 'remove') act('friend-remove', {'user_id': identifier(person['id'])});},
+              itemBuilder: (_) => const [PopupMenuItem(value: 'remove', child: Text('Убрать из друзей'))])))
+        : tab == 1
+        ? ApiList(key: ValueKey('requests-$revision'), api: widget.api,
+            route: 'friend-requests', emptyTitle: 'Нет новых заявок',
+            itemBuilder: (context, request, refresh) {
+              final person = obj(request['person']);
+              final id = identifier(request['friendship_id']);
+              final incoming = request['direction'] == 'incoming';
+              return personTile(person, action: Wrap(spacing: 6, children: incoming ? [
+                OutlinedButton(onPressed: () => act('friend-respond',
+                    {'friendship_id': id, 'decision': 'DECLINED'}), child: const Text('Отклонить')),
+                FilledButton(onPressed: () => act('friend-respond',
+                    {'friendship_id': id, 'decision': 'ACCEPTED'}), child: const Text('Принять')),
+              ] : [TextButton(onPressed: () => act('friend-request-cancel',
+                  {'friendship_id': id}), child: const Text('Отменить заявку'))]));
+            })
+        : term.length < 2
+        ? const CircleEmpty(title: 'Найди своих людей',
+            description: 'Введи имя или никнейм, чтобы найти пользователей Circle.',
+            icon: Icons.search_rounded)
+        : ApiList(key: ValueKey('people-$revision-$term'), api: widget.api,
+            route: 'people-search', query: {'q': term},
+            emptyTitle: 'Ничего не найдено',
+            itemBuilder: (context, person, refresh) => personTile(person,
+              action: OutlinedButton.icon(onPressed: () => act('friend-request',
+                  {'user_id': identifier(person['id'])}),
+                icon: const Icon(Icons.person_add_alt_1, size: 17),
+                label: const Text('Добавить'))))),
+    ])));
+}
+
+class PublicProfile extends StatefulWidget {
   const PublicProfile(this.api, this.id, {super.key});
   final CircleApi api;
   final int id;
+  @override State<PublicProfile> createState() => _PublicProfileState();
+}
+class _PublicProfileState extends State<PublicProfile> {
+  late Future<Map<String, dynamic>> request;
+  @override void initState() {super.initState(); request = widget.api.call('user-profile', query: {'id': '${widget.id}'});}
+  @override void didUpdateWidget(covariant PublicProfile old) {
+    super.didUpdateWidget(old);
+    if (old.id != widget.id || old.api != widget.api) {
+      request = widget.api.call('user-profile', query: {'id': '${widget.id}'});
+    }
+  }
   @override Widget build(BuildContext context) => CirclePage(title: 'Профиль', child: FutureBuilder<Map<String, dynamic>>(
-    future: api.call('user-profile', query: {'id': '$id'}),
+    future: request,
     builder: (context, snapshot) {
       if (snapshot.hasError) return CircleEmpty(title: 'Профиль недоступен', description: '${snapshot.error}');
       if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(color: circleGold));
       final data = snapshot.data!;
       final person = obj(data['user']);
       return Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1000), child: Column(children: [
-        Padding(padding: const EdgeInsets.all(24), child: CircleSurface(child: Row(children: [CircleUserAvatar(api: api, user: person, radius: 39), const SizedBox(width: 19), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label(person), style: Theme.of(context).textTheme.headlineSmall), const SizedBox(height: 4), Text('@${person['username'] ?? ''}', style: const TextStyle(color: circleGoldBright)), if ('${data['bio'] ?? ''}'.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 11), child: Text('${data['bio']}'))]))]))),
-        Expanded(child: FeedScreen(api, route: 'profile-posts', query: {'user_id': '$id'})),
+        Padding(padding: const EdgeInsets.all(24), child: CircleSurface(child: Row(children: [CircleUserAvatar(api: widget.api, user: person, radius: 39), const SizedBox(width: 19), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label(person), style: Theme.of(context).textTheme.headlineSmall), const SizedBox(height: 4), Text('@${person['username'] ?? ''}', style: const TextStyle(color: circleGoldBright)), if ('${data['bio'] ?? ''}'.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 11), child: Text('${data['bio']}'))]))]))),
+        Expanded(child: FeedScreen(widget.api, route: 'profile-posts', query: {'user_id': '${widget.id}'})),
       ])));
     },
   ));
@@ -623,12 +871,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(color: circleGold));
           final data = snapshot.data!;
           if (data.isEmpty) return const CircleEmpty(title: 'Нет диалогов', icon: Icons.forum_outlined);
-          return ListView(padding: const EdgeInsets.all(10), children: [for (final conversation in data) Padding(padding: const EdgeInsets.only(bottom: 6), child: InkWell(
+          return ListView.builder(padding: const EdgeInsets.all(10), itemCount: data.length,
+            itemBuilder: (context, index) { final conversation = data[index];
+              return Padding(padding: const EdgeInsets.only(bottom: 6), child: InkWell(
             borderRadius: BorderRadius.circular(13), onTap: () => setState(() => selected = conversation), child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 13), decoration: BoxDecoration(color: identifier(selected?['id']) == identifier(conversation['id']) ? circleGold.withValues(alpha: .12) : Colors.transparent, borderRadius: BorderRadius.circular(13), border: Border.all(color: identifier(selected?['id']) == identifier(conversation['id']) ? circleGold.withValues(alpha: .48) : Colors.transparent)),
               child: Row(children: [CircleUserAvatar(api: widget.api, user: obj(conversation['peer']), radius: 21), const SizedBox(width: 11), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label(obj(conversation['peer'])), style: Theme.of(context).textTheme.titleMedium, overflow: TextOverflow.ellipsis), const SizedBox(height: 5), Text('${conversation['last_message'] ?? ''}', style: Theme.of(context).textTheme.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis)]))]),
             ),
-          ))]);
+          ));});
         })),
       ])),
       Container(width: 1, color: Theme.of(context).dividerColor),
@@ -736,7 +986,10 @@ class _MessagesScreenState extends State<MessagesScreen> {
         if (snapshot.hasError) return CircleEmpty(title: 'Сообщения не загрузились', description: '${snapshot.error}', action: TextButton(onPressed: () => setState(reload), child: const Text('Повторить')));
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(color: circleGold));
         if (snapshot.data!.isEmpty) return const CircleEmpty(title: 'Начните разговор', description: 'Напишите первое сообщение', icon: Icons.chat_bubble_outline);
-        return ListView(padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20), reverse: true, children: [for (final message in snapshot.data!.reversed) _messageBubble(message)]);
+        final data = snapshot.data!;
+        return ListView.builder(padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
+          reverse: true, itemCount: data.length, cacheExtent: 320,
+          itemBuilder: (context, index) => _messageBubble(data[data.length - 1 - index]));
       })),
       if (recording) Container(padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7), color: circleRed.withValues(alpha: .15), child: const Row(children: [Icon(Icons.fiber_manual_record, size: 14, color: circleRed), SizedBox(width: 8), Text('Идёт запись — нажмите на микрофон, чтобы отправить', style: TextStyle(color: circleRed, fontSize: 12))])),
       if (reply != null) Container(padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6), color: circleGold.withValues(alpha: .08), child: Row(children: [const Icon(Icons.reply, color: circleGold, size: 17), const SizedBox(width: 7), Expanded(child: Text('Ответ на сообщение #$reply', style: const TextStyle(fontSize: 12))), IconButton(onPressed: () => setState(() => reply = null), icon: const Icon(Icons.close, size: 18))])),
@@ -966,41 +1219,103 @@ class CallsScreen extends StatelessWidget {
 }
 
 class UpdatesScreen extends StatefulWidget {
-  const UpdatesScreen({super.key});
+  const UpdatesScreen({super.key, this.initialRelease});
+  final UpdateInfo? initialRelease;
   @override State<UpdatesScreen> createState() => _UpdatesScreenState();
 }
 class _UpdatesScreenState extends State<UpdatesScreen> {
   bool busy = false;
-  String status = 'Обновления проверяются по подписанному манифесту Circle.';
+  double? progress;
+  String status = 'Circle проверяет обновления через GitHub Releases.';
+  @override void initState() {
+    super.initState();
+    if (widget.initialRelease != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) install(widget.initialRelease!);
+      });
+    }
+  }
+
+  CircleUpdater? get updater {
+    final uri = circleUpdateUri;
+    if (uri == null || updatePublicKey.isEmpty) return null;
+    return CircleUpdater(manifestUrl: uri, publicKeyBase64: updatePublicKey);
+  }
   Future<void> check() async {
-    if (updateManifest.isEmpty || updatePublicKey.isEmpty) {
-      setState(() => status = 'Канал обновлений ещё не настроен. Укажите CIRCLE_UPDATE_URL и CIRCLE_UPDATE_PUBLIC_KEY при сборке.');
+    final service = updater;
+    if (service == null) {
+      setState(() => status = 'Подписанный канал не настроен. Владельцу репозитория необходимо один раз добавить GitHub Actions Secret CIRCLE_UPDATE_PRIVATE_KEY_PEM и собрать приложение заново.');
       return;
     }
-    setState(() {busy = true; status = 'Проверяю наличие обновлений...';});
-    final updater = CircleUpdater(manifestUrl: Uri.parse(updateManifest), publicKeyBase64: updatePublicKey);
+    setState(() {busy = true; status = 'Проверяю релизы GitHub...'; progress = null;});
     try {
-      final release = await updater.check(appVersion);
-      if (release == null) {if (mounted) setState(() => status = 'Установлена актуальная версия $appVersion'); return;}
+      final release = await service.check(appVersion);
       if (!mounted) return;
-      final consent = await showDialog<bool>(context: context, builder: (c) => AlertDialog(title: Text('Обновление ${release.version}'), content: const Text('Скачать и проверить установщик Circle?'), actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Позже')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Скачать'))]));
-      if (consent != true) return;
-      if (mounted) setState(() => status = 'Скачиваю установщик и проверяю SHA-256...');
-      final file = await updater.downloadVerified(release);
-      if (!mounted) return;
-      setState(() => status = 'Установщик проверен: ${file.path}');
-      final launch = await showDialog<bool>(context: context, builder: (c) => AlertDialog(title: const Text('Новая версия готова'), content: const Text('Запустить обновление? Текущий сеанс будет закрыт.'), actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Позже')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Установить'))]));
-      if (launch == true) {await Process.start(file.path, [], mode: ProcessStartMode.detached); await windowManager.close();}
-    } catch (e) {if (mounted) setState(() => status = 'Ошибка обновления: $e');}
-    finally {updater.close(); if (mounted) setState(() => busy = false);}
+      if (release == null) {
+        setState(() => status = 'Установлена актуальная версия Circle $appVersion.');
+        return;
+      }
+      final accepted = await showDialog<bool>(context: context, builder: (dialog) => AlertDialog(
+        title: Text('Обновление ${release.version}'),
+        content: Text('Скачать обновление из GitHub, проверить цифровую подпись и заменить файлы приложения?\n\n${release.notes}'),
+        actions: [TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Позже')),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Скачать и установить'))]));
+      if (accepted == true && mounted) await install(release);
+    } catch (e, stack) {
+      CircleStartupLog.report('check update', e, stack);
+      if (mounted) setState(() => status = 'Не удалось проверить обновления: $e');
+    } finally {
+      service.close();
+      if (mounted) setState(() => busy = false);
+    }
   }
-  @override Widget build(BuildContext context) => Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 650), child: Padding(padding: const EdgeInsets.all(25), child: CircleSurface(padding: const EdgeInsets.all(35), accent: true, child: Column(mainAxisSize: MainAxisSize.min, children: [
-    Container(padding: const EdgeInsets.all(20), decoration: BoxDecoration(shape: BoxShape.circle, color: circleGold.withValues(alpha: .12)), child: const Icon(Icons.system_update_alt, size: 36, color: circleGold)),
-    const SizedBox(height: 18), Text('Circle для Windows', style: Theme.of(context).textTheme.headlineSmall),
-    const SizedBox(height: 7), const Text('Версия $appVersion', style: TextStyle(color: circleGoldBright)),
-    const SizedBox(height: 20), Text(status, style: const TextStyle(color: circleMuted), textAlign: TextAlign.center),
-    const SizedBox(height: 25), FilledButton.icon(onPressed: busy ? null : check, icon: const Icon(Icons.refresh), label: Text(busy ? 'Проверка...' : 'Проверить обновления')),
-  ])))));
+
+  Future<void> install(UpdateInfo release) async {
+    final service = updater;
+    if (service == null) return;
+    setState(() {busy = true; progress = 0; status = 'Загружаю Circle ${release.version}...';});
+    try {
+      var lastPercent = -1;
+      final payload = await service.downloadVerified(release, onProgress: (value) {
+        final percent = (value * 100).round();
+        // Avoid repainting the whole screen for every network packet.
+        if (percent != lastPercent && mounted) {
+          lastPercent = percent;
+          setState(() => progress = value);
+        }
+      });
+      if (!mounted) return;
+      setState(() {progress = 1; status = 'Подпись и SHA-256 проверены. Запускаю безопасное обновление...';});
+      await CircleUpdater.installAndRestart(release, payload);
+    } catch (e, stack) {
+      CircleStartupLog.report('install update', e, stack);
+      if (mounted) setState(() => status = 'Обновление не выполнено: $e');
+    } finally {
+      service.close();
+      if (mounted) setState(() => busy = false);
+    }
+  }
+  @override Widget build(BuildContext context) => Center(child: ConstrainedBox(
+    constraints: const BoxConstraints(maxWidth: 650),
+    child: Padding(padding: const EdgeInsets.all(25), child: CircleSurface(
+      padding: const EdgeInsets.all(35), accent: true,
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(padding: const EdgeInsets.all(21), decoration: BoxDecoration(
+          shape: BoxShape.circle, color: circleGold.withValues(alpha: .12)),
+          child: const Icon(Icons.system_update_alt_rounded, size: 38, color: circleGold)),
+        const SizedBox(height: 18), Text('Circle для Windows', style: Theme.of(context).textTheme.headlineSmall),
+        const SizedBox(height: 8), const Text('Версия $appVersion', style: TextStyle(color: circleGoldBright)),
+        const SizedBox(height: 18), Text(status, style: const TextStyle(color: circleMuted), textAlign: TextAlign.center),
+        if (progress != null) Padding(padding: const EdgeInsets.only(top: 18), child: Column(children: [
+          LinearProgressIndicator(value: progress, minHeight: 5, backgroundColor: circleStroke),
+          const SizedBox(height: 8), Text('${((progress ?? 0) * 100).round()}%',
+            style: const TextStyle(color: circleGoldBright))])),
+        const SizedBox(height: 24), FilledButton.icon(onPressed: busy ? null : check,
+          icon: busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.refresh),
+          label: Text(busy ? 'Выполняется...' : 'Проверить GitHub')),
+        const SizedBox(height: 16), const Text('Обновление не удаляет сообщения и учётную запись. При неудаче сохранённая версия восстанавливается автоматически.',
+          textAlign: TextAlign.center, style: TextStyle(fontSize: 11, color: circleMuted)),
+      ])))));
 }
 
 class CinemaRoomsScreen extends StatelessWidget {

@@ -20,29 +20,33 @@ class CircleMedia extends StatefulWidget {
   @override State<CircleMedia> createState() => _CircleMediaState();
 }
 class _CircleMediaState extends State<CircleMedia> {
-  late Future<List<int>> bytes;
+  Future<List<int>>? bytes;
   Player? player;
   VideoController? controller;
   File? local;
   bool preparing = false;
   bool playing = false;
-  @override void initState() {super.initState(); bytes = widget.api.media(widget.route, widget.id);}
+  @override void initState() {super.initState(); _load();}
+  void _load() {
+    // Videos and audio are fetched only when the user presses Play.
+    bytes = widget.mime.startsWith('image/') ? widget.api.media(widget.route, widget.id) : null;
+  }
   @override void didUpdateWidget(covariant CircleMedia old) {
     super.didUpdateWidget(old);
     if (old.id != widget.id || old.route != widget.route || old.api != widget.api) {
-      _clear(); bytes = widget.api.media(widget.route, widget.id);
+      _clear(); _load();
     }
   }
   Future<void> _prepare() async {
     if (preparing || player != null) return;
     setState(() => preparing = true);
     try {
-      final data = await bytes;
       final dir = await getTemporaryDirectory();
       final extension = widget.mime.contains('webm') ? 'webm' : widget.mime.contains('ogg') ? 'ogg' : widget.mime.contains('wav') ? 'wav' : widget.mime.contains('mp4') ? 'mp4' : 'mp3';
       final path = '${dir.path}${Platform.pathSeparator}circle_${widget.route}_${widget.id}.$extension';
       final file = File(path);
-      await file.writeAsBytes(data, flush: true);
+      await widget.api.downloadMediaToFile(widget.route, widget.id, file);
+      if (!mounted) {try {await file.delete();} catch (_) {} return;}
       // Loading native media libraries is optional; a missing codec must not
       // stop the entire Circle app before the first screen is visible.
       MediaKit.ensureInitialized();
@@ -77,7 +81,8 @@ class _CircleMediaState extends State<CircleMedia> {
       return ClipRRect(borderRadius: BorderRadius.circular(14), child: FutureBuilder<List<int>>(future: bytes, builder: (context, snapshot) {
         if (snapshot.hasError) return const CircleEmpty(title: 'Не удалось загрузить фото', icon: Icons.broken_image_outlined);
         if (!snapshot.hasData) return const SizedBox(height: 180, child: Center(child: CircularProgressIndicator(color: circleGold)));
-        return Image.memory(Uint8List.fromList(snapshot.data!), width: double.infinity, height: widget.compact ? 160 : 345, fit: BoxFit.contain, gaplessPlayback: true);
+        return Image.memory((snapshot.data! is Uint8List ? snapshot.data! as Uint8List : Uint8List.fromList(snapshot.data!)), width: double.infinity, height: widget.compact ? 160 : 345, fit: BoxFit.contain,
+          cacheWidth: widget.compact ? 800 : 1600, gaplessPlayback: true);
       }));
     }
     if (widget.mime.startsWith('video/')) {

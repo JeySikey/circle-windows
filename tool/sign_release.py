@@ -32,8 +32,10 @@ else:
     package = Path(a.package)
     key = serialization.load_pem_private_key(Path(a.private_key).read_bytes(), password=None)
     if not isinstance(key, Ed25519PrivateKey): p.error('Key must be Ed25519')
+    with package.open('rb') as f:
+        digest = hashlib.file_digest(f, 'sha256').hexdigest()
     payload = json.dumps({'version': a.version, 'download_url': a.url,
-      'sha256': hashlib.file_digest(package.open('rb'), 'sha256').hexdigest()},
+      'sha256': digest},
       separators=(',', ':'), ensure_ascii=False).encode('utf-8')
     envelope = {'payload': base64.b64encode(payload).decode(),
        'signature': base64.b64encode(key.sign(payload)).decode()}
