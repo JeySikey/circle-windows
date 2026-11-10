@@ -1,3 +1,12 @@
+## CI hotfix 2 — 10 ноября 2026 (версия приложения 0.5.1 без изменений)
+
+- Устранена ошибка GitHub Actions `can't open file tool/test_installer_ci.py`.
+- Проверки корректного ожидания Inno Setup, чтения журнала и целостности установленного runtime встроены в `tool/validate_package.py`.
+- `windows.yml` запускает единый валидатор и не зависит от отдельного `test_installer_ci.py`.
+- Валидатор проверяет наличие всех Python/PowerShell скриптов, которые вызывает Windows workflow, и сообщает конкретный отсутствующий путь.
+- `tool/test_installer_ci.py` оставлен для локальных проверок, но для сборки в GitHub не обязателен.
+- Параметры ключа, серверный API и код Flutter не менялись.
+
 # История изменений Circle Windows Native
 
 ## 0.5.1 CI HOTFIX — корректная проверка Inno Setup
