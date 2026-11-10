@@ -4,12 +4,14 @@ on:
   push:
     branches: [main, master]
     tags: ['v*']
+
 permissions:
   contents: write
+
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 65
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -20,62 +22,93 @@ jobs:
         run: flutter config --enable-windows-desktop
       - name: Generate Windows runner
         run: flutter create --platforms=windows --project-name=circle_windows .
-      - name: Circle branded Windows icon
+      - name: Circle branded icon
         shell: pwsh
         run: Copy-Item 'branding/circle.ico' 'windows/runner/resources/app_icon.ico' -Force
-      - name: Resolve dependencies
+      - name: Resolve Flutter packages
         run: flutter pub get
-      - name: Validate source files and version
+      - name: Validate project files
         run: python tool/validate_package.py
-      - name: Static analysis
+      - name: Offline signed update protocol tests
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check cryptography
+          python tool/self_test_update.py
+      - name: Analyze code
         run: flutter analyze --no-fatal-infos
-      - name: Unit tests
+      - name: Run tests
         run: flutter test
-      - name: Build native Windows exe
+
+      - name: Prepare pinned public key for update channel
+        id: signing
         shell: pwsh
         env:
-          CIRCLE_UPDATE_URL: ${{ vars.CIRCLE_UPDATE_URL }}
-          CIRCLE_UPDATE_PUBLIC_KEY: ${{ vars.CIRCLE_UPDATE_PUBLIC_KEY }}
+          CIRCLE_SIGNING_KEY: ${{ secrets.CIRCLE_UPDATE_PRIVATE_KEY_PEM }}
         run: |
-          $defs = @()
-          if ($env:CIRCLE_UPDATE_URL -and $env:CIRCLE_UPDATE_PUBLIC_KEY) {
-            $defs += '--dart-define=CIRCLE_UPDATE_URL=' + $env:CIRCLE_UPDATE_URL
-            $defs += '--dart-define=CIRCLE_UPDATE_PUBLIC_KEY=' + $env:CIRCLE_UPDATE_PUBLIC_KEY
+          if (-not $env:CIRCLE_SIGNING_KEY) {
+            'enabled=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            Write-Warning 'No CIRCLE_UPDATE_PRIVATE_KEY_PEM secret; build will work, but secure auto-update requires this one-time setup.'
+          } else {
+            python -m pip install --disable-pip-version-check cryptography
+            $keyFile = Join-Path $env:RUNNER_TEMP 'circle-release-key.pem'
+            [IO.File]::WriteAllText($keyFile, $env:CIRCLE_SIGNING_KEY)
+            $line = python tool/release_keys.py --private-key $keyFile
+            if ($LASTEXITCODE -ne 0) { throw 'Unable to derive release public key' }
+            $public = ($line | Select-String '^PUBLIC_KEY_BASE64=').ToString().Split('=',2)[1]
+            "public=$public" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            'enabled=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            Remove-Item -LiteralPath $keyFile -Force
           }
-          flutter build windows --release @defs
-      - name: Stage MSVC runtime and verify complete Windows distribution
+      - name: Build independent Circle Windows native EXE
+        shell: pwsh
+        env:
+          CIRCLE_REPOSITORY: ${{ github.repository }}
+          CIRCLE_PUBLIC: ${{ steps.signing.outputs.public }}
+        run: |
+          flutter build windows --release --dart-define=CIRCLE_GITHUB_REPO=$env:CIRCLE_REPOSITORY --dart-define=CIRCLE_UPDATE_PUBLIC_KEY=$env:CIRCLE_PUBLIC
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter Windows build failed' }
+      - name: Include app-local MSVC and detached updater
         shell: pwsh
         run: ./tool/package_windows.ps1
-      - name: Build EXE installer
+      - name: Build Inno Setup installer for initial installation
         shell: pwsh
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
-          & $iscc '/DAppVersion=0.4.2' 'installer\Circle.iss'
+          & $iscc '/DAppVersion=0.5.0' 'installer\Circle.iss'
           if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed' }
-      - name: Validate installation payload (not just compilation)
+      - name: Build ZIP for silent in-place upgrades (no installer)
+        run: python tool/build_payload.py --version 0.5.0
+      - name: Verify signed payload ZIP passes updater safety rules
         shell: pwsh
-        run: ./tool/verify_installer.ps1
-      - name: Portable startup probe (diagnostic only on headless CI)
-        shell: pwsh
-        continue-on-error: true
         run: |
-          ./tool/diagnose_windows.ps1 -Executable 'build/windows/x64/runner/Release/circle_windows.exe' -Seconds 5
-      - name: Upload Windows startup diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Circle-Windows-CI-Diagnostics
-          path: |
-            ${{ runner.temp }}/circle-install.log
-            ${{ runner.temp }}/circle-install-verification.txt
-            ${{ runner.temp }}/Circle-Installer-Verification/tools/diagnose_windows.ps1
-          if-no-files-found: ignore
-          retention-days: 14
+          $zip = Get-ChildItem -Path dist -Filter '*_Payload.zip' | Select-Object -First 1
+          if (-not $zip) {throw 'Missing update ZIP'}
+          $digest = (Get-FileHash -LiteralPath $zip.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tool/apply_update.ps1 -Archive $zip.FullName -ExpectedSha256 $digest -ExePath "$pwd\build\windows\x64\runner\Release\circle_windows.exe" -ParentPid 999999 -Version 0.5.0 -ValidateOnly
+          if ($LASTEXITCODE -ne 0) {throw 'Updater validation failed'}
+      - name: Verify installed runtime contents
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem dist/*_Setup.exe | Select-Object -First 1
+          if (-not $installer) { throw 'Installer missing' }
+          $destination = Join-Path $env:RUNNER_TEMP 'Circle-Installer-Verification'
+          & $installer.FullName /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/DIR=$destination" "/LOG=$env:RUNNER_TEMP\circle-install.log"
+          if ($LASTEXITCODE -ne 0) { throw "Installer failed with exit code $LASTEXITCODE" }
+          foreach ($file in @('circle_windows.exe','flutter_windows.dll','msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll','data\flutter_assets','data\icudtl.dat','tools\apply_update.ps1')) {
+            if (!(Test-Path (Join-Path $destination $file))) { throw "Missing installed runtime: $file" }
+          }
+          Write-Host 'Initial installer and in-place update runtime are complete'
       - uses: actions/upload-artifact@v4
         with:
           name: Circle-Windows-Setup
-          path: dist/*.exe
+          path: dist/*_Setup.exe
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Circle-Windows-Update-ZIP
+          path: dist/*_Payload.zip
           if-no-files-found: error
           retention-days: 30
       - uses: actions/upload-artifact@v4
@@ -85,30 +118,26 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish signed GitHub release (tags only)
+      - name: Publish signed release for automatic future updates (tag only)
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
           CIRCLE_SIGNING_KEY: ${{ secrets.CIRCLE_UPDATE_PRIVATE_KEY_PEM }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if (-not $env:CIRCLE_SIGNING_KEY) {
-            throw 'Set secret CIRCLE_UPDATE_PRIVATE_KEY_PEM before publishing a version tag'
-          }
-          python -m pip install --disable-pip-version-check cryptography
-          $installer = Get-ChildItem 'dist/*.exe' | Select-Object -First 1
-          if (-not $installer) { throw 'Installer not found' }
-          $tag = '${{ github.ref_name }}'
-          $expected = 'v0.4.2'
-          if ($tag -ne $expected) { throw "Release tag $tag does not match app version $expected" }
-          $url = "https://github.com/${{ github.repository }}/releases/download/$tag/$($installer.Name)"
-          $keyFile = Join-Path $env:RUNNER_TEMP 'circle-signing-key.pem'
-          [System.IO.File]::WriteAllText($keyFile, $env:CIRCLE_SIGNING_KEY)
+          if ('${{ github.ref_name }}' -ne 'v0.5.0') { throw 'Git tag must match current 0.5.0 version' }
+          if (-not $env:CIRCLE_SIGNING_KEY) { throw 'Missing one-time secret CIRCLE_UPDATE_PRIVATE_KEY_PEM' }
+          $keyFile = Join-Path $env:RUNNER_TEMP 'circle-release-key.pem'
+          [IO.File]::WriteAllText($keyFile, $env:CIRCLE_SIGNING_KEY)
           try {
-            python tool/sign_release.py --private-key $keyFile --package $installer.FullName --version 0.4.2 --url $url --output update-manifest.json
-            if ($LASTEXITCODE -ne 0) { throw 'Signing failed' }
-            gh release create $tag $installer.FullName 'update-manifest.json' --title "Circle Windows $tag" --notes 'Native Windows release. Download the EXE installer.'
-            if ($LASTEXITCODE -ne 0) { throw 'GitHub release failed' }
+            $payload = Get-ChildItem dist/*_Payload.zip | Select-Object -First 1
+            $installer = Get-ChildItem dist/*_Setup.exe | Select-Object -First 1
+            if (!$payload -or !$installer) {throw 'Release assets absent'}
+            $assetUrl = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$($payload.Name)"
+            python tool/sign_release.py --private-key $keyFile --package $payload.FullName --version 0.5.0 --url $assetUrl --output update-manifest.json
+            if ($LASTEXITCODE -ne 0) {throw 'Signature step failed'}
+            gh release create '${{ github.ref_name }}' $installer.FullName $payload.FullName 'update-manifest.json' --verify-tag --title 'Circle Windows 0.5.0' --notes 'Native Circle Windows; signed ZIP updates are applied within the installed application and restarted automatically.'
+            if ($LASTEXITCODE -ne 0) {throw 'Release publishing failed'}
           } finally {
-            if (Test-Path $keyFile) { Remove-Item $keyFile -Force }
+            if (Test-Path $keyFile) {Remove-Item -LiteralPath $keyFile -Force}
           }
