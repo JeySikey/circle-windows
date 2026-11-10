@@ -10,7 +10,7 @@ required = [
     'pubspec.yaml', 'lib/main.dart', 'lib/api.dart', 'lib/design.dart', 'lib/desktop_features.dart',
     'lib/live_room.dart', 'lib/media_view.dart', 'lib/updater.dart',
     'lib/startup_log.dart', 'tool/package_windows.ps1', 'tool/verify_installer.ps1', 'tool/diagnose_windows.ps1',
-    'tool/apply_update.ps1', 'tool/build_payload.py', 'tool/release_keys.py',
+    'tool/apply_update.ps1', 'tool/test_update_apply.ps1', 'tool/build_payload.py', 'tool/release_keys.py',
     'tool/self_test_update.py', 'tool/test_bootstrap_keys.py', 'tool/bootstrap_github_keys.py',
     'tool/validate_package.py', 'tool/sign_release.py', 'tool/package_windows.ps1',
     'tool/verify_installer.ps1', 'tool/diagnose_windows.ps1', 'tool/Circle-Diagnostics.cmd',
@@ -22,7 +22,7 @@ for rel in required:
     if not (root / rel).is_file():
         raise SystemExit(f'Missing required file: {rel}')
 
-version = '0.7.0'
+version = '0.7.1'
 for rel in ['pubspec.yaml', 'lib/main.dart', 'installer/Circle.iss', 'build-installer.ps1', '.github/workflows/windows.yml']:
     if version not in (root / rel).read_text(encoding='utf-8'):
         raise SystemExit(f'Wrong version: {rel}')
@@ -76,6 +76,20 @@ for rel in sorted(set(re.findall(r'\bpython\s+(tool/[A-Za-z0-9_/-]+\.py)', workf
                       + re.findall(r'(?<![A-Za-z0-9_])\./(tool/[A-Za-z0-9_/-]+\.ps1)', workflow_source))):
     if not (root / rel).is_file():
         raise SystemExit(f'Missing GitHub Actions dependency: {rel}. Re-upload tool/ folder.')
+updater = (root / 'tool/apply_update.ps1').read_text(encoding='utf-8')
+dart_updater = (root / 'lib/updater.dart').read_text(encoding='utf-8')
+updater_guards = {
+    'readiness handshake': '-HandshakeFile' in dart_updater and '$HandshakeFile' in updater,
+    'wait for updater before exiting': "if (!ready)" in dart_updater and "exit(0);" in dart_updater,
+    'preserve uninstall metadata': "unins\\d{3}" in updater or "unins\\d" in updater,
+    'report update failures': "WriteResult 'failed'" in updater and 'showLastUpdateResult' in main_source,
+    'actual Windows file swap integration test': 'run: ./tool/test_update_apply.ps1' in workflow_source,
+    'post-swap rollback test': '-CITestForcePostSwapFailure' in (root / 'tool/test_update_apply.ps1').read_text(encoding='utf-8'),
+}
+for description, passed in updater_guards.items():
+    if not passed:
+        raise SystemExit(f'Updater regression guard: {description}')
+print('Updater handshake, rollback, and CI coverage: PASS')
 print('Installer regression and workflow script dependencies: PASS')
 
 zip_path = root.parent / f'Circle_Windows_Native_{version}_FIXED_GitHub.zip'

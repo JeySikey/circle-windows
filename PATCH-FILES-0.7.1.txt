@@ -1,0 +1,16 @@
+Circle Windows 0.7.1 — только изменённые и новые файлы относительно 0.7.0
+
+.github/workflows/windows.yml   [modified] release version + real Windows updater CI tests
+CHANGELOG.md                  [modified] release notes
+build-installer.ps1           [modified] version
+installer/Circle.iss          [modified] version
+lib/main.dart                 [modified] version + visible failure message
+lib/updater.dart              [modified] readiness handshake before shutdown
+pubspec.yaml                  [modified] version 0.7.1+15
+tool/apply_update.ps1         [modified] safe swap, rollback, uninstall preservation, status JSON
+tool/validate_package.py     [modified] version and new CI guards
+tool/test_update_apply.ps1   [new] integration test of apply+rollback+tamper
+ docs/UPDATER-0.7.1.md         [new] upgrade and recovery instructions
+
+NO changes to PHP, MySQL, user records or Ed25519 signing keys.
+Apply over the existing repository. Do not delete unrelated files.

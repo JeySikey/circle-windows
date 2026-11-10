@@ -1,5 +1,5 @@
 name: circle_windows
-version: 0.7.0+14
+version: 0.7.1+15
 description: Circle Windows native desktop client with secure in-place GitHub auto-updates
 publish_to: none
 environment:

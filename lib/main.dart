@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'dart:async';
 import 'dart:ui' show PlatformDispatcher;
 import 'package:file_picker/file_picker.dart';
@@ -19,7 +20,7 @@ const secure = FlutterSecureStorage();
 const updateManifest = String.fromEnvironment('CIRCLE_UPDATE_URL');
 const updateRepository = String.fromEnvironment('CIRCLE_GITHUB_REPO');
 const updatePublicKey = String.fromEnvironment('CIRCLE_UPDATE_PUBLIC_KEY');
-const appVersion = '0.7.0';
+const appVersion = '0.7.1';
 
 Uri? get circleUpdateUri => updateManifest.trim().isNotEmpty
     ? Uri.tryParse(updateManifest.trim())
@@ -93,6 +94,7 @@ class _CircleRootState extends State<CircleRoot> {
   bool loading = true;
   bool collapsed = false;
   bool incomingDialog = false;
+  bool suppressStartupUpdate = false;
   bool incomingPolling = false;
   Timer? incomingTimer;
   int page = 0;
@@ -102,15 +104,48 @@ class _CircleRootState extends State<CircleRoot> {
     super.initState();
     restore();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Show failures from the previous detached updater instead of silently
+      // returning to the old version after a failed file swap.
+      unawaited(showLastUpdateResult());
       Future<void>.delayed(const Duration(seconds: 3), () {
         if (mounted) checkUpdatesOnLaunch();
       });
     });
   }
 
+  Future<void> showLastUpdateResult() async {
+    final localAppData = Platform.environment['LOCALAPPDATA'];
+    if (localAppData == null || localAppData.isEmpty) return;
+    final result = File('$localAppData${Platform.pathSeparator}Circle'
+        '${Platform.pathSeparator}updates${Platform.pathSeparator}last_result.json');
+    if (!await result.exists()) return;
+    try {
+      final parsed = jsonDecode(await result.readAsString());
+      if (parsed is! Map<String, dynamic>) return;
+      final state = '${parsed['state'] ?? ''}';
+      if (state == 'pending') return;
+      await result.delete(); // Consume only completed update attempts.
+      if (!mounted || state != 'failed') return;
+      suppressStartupUpdate = true;
+      final version = '${parsed['version'] ?? 'неизвестна'}';
+      final message = '${parsed['message'] ?? 'Неизвестная ошибка'}';
+      final logPath = '${parsed['log'] ?? r'%LOCALAPPDATA%\Circle\updates\update.log'}';
+      await showDialog<void>(context: context, builder: (dialog) => AlertDialog(
+        title: const Text('Circle не удалось обновить'),
+        content: SelectableText('Попытка перехода на $version завершилась ошибкой. '
+            'Предыдущая версия сохранена.\n\n$message\n\nЖурнал: $logPath'),
+        actions: [TextButton(onPressed: () => Navigator.pop(dialog),
+          child: const Text('Понятно'))],
+      ));
+    } catch (error, stack) {
+      CircleStartupLog.report('update result report', error, stack);
+    }
+  }
+
   Future<void> checkUpdatesOnLaunch() async {
     final uri = circleUpdateUri;
-    if (uri == null || updatePublicKey.isEmpty || incomingDialog || !mounted) return;
+    if (uri == null || updatePublicKey.isEmpty || incomingDialog ||
+        suppressStartupUpdate || !mounted) return;
     final updater = CircleUpdater(manifestUrl: uri, publicKeyBase64: updatePublicKey);
     try {
       final info = await updater.check(appVersion);
@@ -1404,7 +1439,7 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
         }
       });
       if (!mounted) return;
-      setState(() {progress = 1; status = 'Подпись и SHA-256 проверены. Запускаю безопасное обновление...';});
+      setState(() {progress = 1; status = 'Архив проверен. Готовлю файлы к замене, Circle пока остаётся открытым...';});
       await CircleUpdater.installAndRestart(release, payload);
     } catch (e, stack) {
       CircleStartupLog.report('install update', e, stack);

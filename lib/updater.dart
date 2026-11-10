@@ -154,32 +154,77 @@ class CircleUpdater {
     }
   }
 
-  /// Copies the trusted updater out of the application folder before starting
-  /// it. It can therefore move/replace the whole folder, including itself.
+  /// Copies the updater outside the application directory and requires a
+  /// verified readiness handshake BEFORE closing the running Flutter process.
+  /// The PowerShell helper has already verified/extracted the payload when the
+  /// handshake arrives, so an early script failure no longer silently exits
+  /// Circle and leaves the old build installed.
   static Future<void> installAndRestart(UpdateInfo release, File verifiedZip) async {
-    if (!Platform.isWindows) throw const FormatException('Обновления доступны только на Windows.');
+    if (!Platform.isWindows) {
+      throw const FormatException('Обновления доступны только на Windows.');
+    }
     final exe = File(Platform.resolvedExecutable);
     final appDir = exe.parent;
-    final updaterSource = File('${appDir.path}${Platform.pathSeparator}tools${Platform.pathSeparator}apply_update.ps1');
+    final updaterSource = File(
+      '${appDir.path}${Platform.pathSeparator}tools${Platform.pathSeparator}apply_update.ps1',
+    );
     if (!await updaterSource.exists()) {
-      throw StateError('Не найден компонент установки обновлений.');
+      throw StateError('В этой установленной версии отсутствует компонент обновления. '
+          'Для исправления потребуется один раз установить новую версию Circle.');
     }
-    final support = Directory('${(await getApplicationSupportDirectory()).path}${Platform.pathSeparator}updates');
+    final support = Directory(
+      '${(await getApplicationSupportDirectory()).path}${Platform.pathSeparator}updates',
+    );
     await support.create(recursive: true);
-    final script = File('${support.path}${Platform.pathSeparator}apply_update.ps1');
+    final nonce = DateTime.now().microsecondsSinceEpoch;
+    final script = File(
+      '${support.path}${Platform.pathSeparator}apply_update_$nonce.ps1',
+    );
+    final handshake = File(
+      '${support.path}${Platform.pathSeparator}ready_$nonce.txt',
+    );
     await updaterSource.copy(script.path);
-    final process = await Process.start('powershell.exe', [
-      '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-      '-WindowStyle', 'Hidden', '-File', script.path,
-      '-Archive', verifiedZip.path,
-      '-ExpectedSha256', release.sha256,
-      '-ExePath', exe.path,
-      '-ParentPid', '$pid',
-      '-Version', release.version,
-    ], workingDirectory: support.path, mode: ProcessStartMode.detached);
-    if (process.pid <= 0) throw StateError('Не удалось запустить компонент обновления.');
-    // Separate process waits for this process to exit; then swaps binaries and
-    // launches the new version. No Inno Setup UI or admin rights are required.
+    final process = await Process.start(
+      'powershell.exe',
+      [
+        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+        '-WindowStyle', 'Hidden', '-File', script.path,
+        '-Archive', verifiedZip.path,
+        '-ExpectedSha256', release.sha256,
+        '-ExePath', exe.path,
+        '-ParentPid', '$pid',
+        '-Version', release.version,
+        '-HandshakeFile', handshake.path,
+      ],
+      workingDirectory: support.path,
+      mode: ProcessStartMode.detached,
+    );
+    if (process.pid <= 0) {
+      throw StateError('Не удалось запустить внешний компонент обновления.');
+    }
+    // Installation and unpacking may take time on slower HDDs. Keep the
+    // running version usable until the detached updater confirms readiness.
+    var ready = false;
+    for (var attempt = 0; attempt < 240; attempt++) {
+      if (await handshake.exists()) {
+        ready = (await handshake.readAsString()).trim() == 'ready';
+        break;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+    if (!ready) {
+      throw StateError('Файлы скачаны, но обновлятор не смог подготовить установку. '
+          'Приложение оставлено открытым. Причина записана в '
+          r'%LOCALAPPDATA%\Circle\updates\update.log');
+    }
+    try {
+      await handshake.delete();
+    } on FileSystemException {
+      // The external updater may still have its handshake open momentarily.
+    }
+    // The detached updater now waits for this exact process to terminate,
+    // swaps the full runtime folder, restores Inno uninstall metadata and
+    // starts the new binary. Account/session data stays in app support.
     exit(0);
   }
 }
