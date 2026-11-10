@@ -1,0 +1,14 @@
+.dart_tool/
+.flutter-plugins*
+.packages
+.pub-cache/
+.pub/
+build/
+dist/
+windows/flutter/ephemeral/
+*.log
+.idea/
+.vscode/
+
+release-private-key.pem
+update-manifest.json
