@@ -62,3 +62,9 @@ if (Test-Path -LiteralPath $updateLog) {
   Copy-Item -LiteralPath $updateLog -Destination (Join-Path $reportDir 'update.log') -Force
 }
 Write-Host 'Circle in-place updater integration test: PASS'
+
+# Negative-path tests above intentionally run powershell.exe processes that return 1.
+# GitHub Actions' pwsh wrapper propagates the last native exit code unless
+# explicitly cleared, even when every assertion has passed.
+$global:LASTEXITCODE = 0
+exit 0
