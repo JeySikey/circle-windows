@@ -23,7 +23,7 @@ for rel in required:
     if not (root / rel).is_file():
         raise SystemExit(f'Missing required file: {rel}')
 
-version = '0.8.0'
+version = '0.8.1'
 for rel in ['pubspec.yaml', 'lib/main.dart', 'installer/Circle.iss', 'build-installer.ps1', '.github/workflows/windows.yml']:
     if version not in (root / rel).read_text(encoding='utf-8'):
         raise SystemExit(f'Wrong version: {rel}')
@@ -90,6 +90,11 @@ updater_guards = {
 for description, passed in updater_guards.items():
     if not passed:
         raise SystemExit(f'Updater regression guard: {description}')
+if "ProcessStartMode.normal" not in dart_updater or 'launcher.log' not in dart_updater:
+    raise SystemExit('Updater regression: lost process exit-code and early-error diagnostics')
+if "windowsUpdatesPath" not in dart_updater or "LOCALAPPDATA" not in dart_updater:
+    raise SystemExit('Updater regression: no shared Windows update log folder')
+print('Updater launcher diagnostics and unified Windows path: PASS')
 print('Updater handshake, rollback, and CI coverage: PASS')
 print('Installer regression and workflow script dependencies: PASS')
 

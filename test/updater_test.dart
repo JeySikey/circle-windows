@@ -14,6 +14,14 @@ void main() {
     }
   });
 
+  test('updater and PowerShell use the exact LOCALAPPDATA folder', () {
+    expect(CircleUpdater.windowsUpdatesPath(r'C:\Users\Tester\AppData\Local'),
+        r'C:\Users\Tester\AppData\Local\Circle\updates');
+    expect(CircleUpdater.windowsUpdatesPath('C:\\Users\\Тест Пользователь\\AppData\\Local\\'),
+        r'C:\Users\Тест Пользователь\AppData\Local\Circle\updates');
+    expect(() => CircleUpdater.windowsUpdatesPath(''), throwsStateError);
+  });
+
   test('version ordering', () {
     expect(CircleUpdater.newer('0.4.0','0.3.2'),isTrue);
     expect(CircleUpdater.newer('0.3.0','0.3.0'),isFalse);

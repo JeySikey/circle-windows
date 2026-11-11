@@ -3,8 +3,8 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:cryptography/cryptography.dart';
-import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+import 'package:http/http.dart' as http;
 
 /// Complete Flutter Windows payload, NOT an executable installer.
 /// The separately launched updater atomically swaps the application directory.
@@ -96,6 +96,19 @@ class CircleUpdater {
     return UpdateInfo(version, download, sha, notes: '${data['notes'] ?? ''}');
   }
 
+  /// Windows updater and the PowerShell worker must use exactly the same folder.
+  static String windowsUpdatesPath(String localAppData) {
+    if (localAppData.trim().isEmpty) {
+      throw StateError('Windows не передала путь LOCALAPPDATA.');
+    }
+    final trimmed = localAppData.replaceAll(RegExp(r'[\\/]+$'), '');
+    return '$trimmed\\Circle\\updates';
+  }
+
+  static String updateDiagnosticsPath() => windowsUpdatesPath(
+        Platform.environment['LOCALAPPDATA'] ?? '',
+      );
+
   static Future<String> sha256File(File file) async =>
       (await crypto.sha256.bind(file.openRead()).first).toString();
 
@@ -154,11 +167,11 @@ class CircleUpdater {
     }
   }
 
-  /// Copies the updater outside the application directory and requires a
-  /// verified readiness handshake BEFORE closing the running Flutter process.
-  /// The PowerShell helper has already verified/extracted the payload when the
-  /// handshake arrives, so an early script failure no longer silently exits
-  /// Circle and leaves the old build installed.
+  /// Keep the app open until PowerShell has verified and staged the payload.
+  /// A normally-started child keeps running after exit(0), while its stderr
+  /// and exitCode are available before the handshake. The launch record is
+  /// created BEFORE spawning PowerShell, so even parser/start failures are
+  /// actionable instead of a silent 120-second timeout.
   static Future<void> installAndRestart(UpdateInfo release, File verifiedZip) async {
     if (!Platform.isWindows) {
       throw const FormatException('Обновления доступны только на Windows.');
@@ -169,62 +182,111 @@ class CircleUpdater {
       '${appDir.path}${Platform.pathSeparator}tools${Platform.pathSeparator}apply_update.ps1',
     );
     if (!await updaterSource.exists()) {
-      throw StateError('В этой установленной версии отсутствует компонент обновления. '
-          'Для исправления потребуется один раз установить новую версию Circle.');
+      throw StateError('В установленной версии отсутствует tools\\apply_update.ps1. '
+          'Потребуется однократная установка исправленного Circle.');
     }
-    final support = Directory(
-      '${(await getApplicationSupportDirectory()).path}${Platform.pathSeparator}updates',
-    );
+
+    final support = Directory(updateDiagnosticsPath());
     await support.create(recursive: true);
-    final nonce = DateTime.now().microsecondsSinceEpoch;
-    final script = File(
-      '${support.path}${Platform.pathSeparator}apply_update_$nonce.ps1',
-    );
-    final handshake = File(
-      '${support.path}${Platform.pathSeparator}ready_$nonce.txt',
-    );
-    await updaterSource.copy(script.path);
-    final process = await Process.start(
-      'powershell.exe',
-      [
-        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-        '-WindowStyle', 'Hidden', '-File', script.path,
-        '-Archive', verifiedZip.path,
-        '-ExpectedSha256', release.sha256,
-        '-ExePath', exe.path,
-        '-ParentPid', '$pid',
-        '-Version', release.version,
-        '-HandshakeFile', handshake.path,
-      ],
-      workingDirectory: support.path,
-      mode: ProcessStartMode.detached,
-    );
-    if (process.pid <= 0) {
-      throw StateError('Не удалось запустить внешний компонент обновления.');
+    final launcherLog = File('${support.path}${Platform.pathSeparator}launcher.log');
+    Future<void> log(String message) async {
+      await launcherLog.writeAsString(
+        '${DateTime.now().toIso8601String()} $message\n',
+        mode: FileMode.append,
+        flush: true,
+      );
     }
-    // Installation and unpacking may take time on slower HDDs. Keep the
-    // running version usable until the detached updater confirms readiness.
+
+    final nonce = DateTime.now().microsecondsSinceEpoch;
+    final script = File('${support.path}${Platform.pathSeparator}apply_update_$nonce.ps1');
+    final handshake = File('${support.path}${Platform.pathSeparator}ready_$nonce.txt');
+    await updaterSource.copy(script.path);
+    await log('Preparing Circle ${release.version}; script copied; EXE present: ${await exe.exists()}; '
+        'ZIP present: ${await verifiedZip.exists()}');
+
+    final windowsRoot = Platform.environment['SystemRoot'] ?? r'C:\Windows';
+    final powershell = '$windowsRoot\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+    Process process;
+    try {
+      // Normal mode exposes the actual exit code. Dart documents that the
+      // child continues running if its parent explicitly calls exit(0).
+      process = await Process.start(
+        powershell,
+        [
+          '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+          '-WindowStyle', 'Hidden', '-File', script.path,
+          '-Archive', verifiedZip.path,
+          '-ExpectedSha256', release.sha256,
+          '-ExePath', exe.path,
+          '-ParentPid', '$pid',
+          '-Version', release.version,
+          '-HandshakeFile', handshake.path,
+        ],
+        workingDirectory: support.path,
+        mode: ProcessStartMode.normal,
+      );
+    } on ProcessException catch (error) {
+      await log('FAILED starting PowerShell: $error');
+      throw StateError('Не удалось запустить PowerShell: $error. '
+          'Диагностика: ${launcherLog.path}');
+    }
+
+    await log('PowerShell started, PID ${process.pid}; waiting for ready handshake');
+    // Consume streams to avoid blocked pipes. Keep only a bounded excerpt;
+    // the detailed PowerShell log is kept separately as update.log.
+    final output = StringBuffer();
+    void remember(String chunk) {
+      if (output.length < 6000) {
+        final remaining = 6000 - output.length;
+        output.write(chunk.length <= remaining ? chunk : chunk.substring(0, remaining));
+      }
+    }
+    final stdoutFinished = process.stdout.transform(const Utf8Decoder(allowMalformed: true))
+        .listen(remember).asFuture<void>();
+    final stderrFinished = process.stderr.transform(const Utf8Decoder(allowMalformed: true))
+        .listen(remember).asFuture<void>();
+    await process.stdin.close();
+    int? exitCode;
+    // There is no polling of stdout and no assumption that a started process
+    // necessarily entered the PowerShell script.
+    process.exitCode.then((value) { exitCode = value; });
+
     var ready = false;
-    for (var attempt = 0; attempt < 240; attempt++) {
+    for (var attempt = 0; attempt < 480; attempt++) {
       if (await handshake.exists()) {
         ready = (await handshake.readAsString()).trim() == 'ready';
-        break;
+        if (ready) break;
       }
-      await Future<void>.delayed(const Duration(milliseconds: 500));
+      if (exitCode != null) break;
+      await Future<void>.delayed(const Duration(milliseconds: 250));
     }
+
     if (!ready) {
-      throw StateError('Файлы скачаны, но обновлятор не смог подготовить установку. '
-          'Приложение оставлено открытым. Причина записана в '
-          r'%LOCALAPPDATA%\Circle\updates\update.log');
+      if (exitCode != null) {
+        try {
+          await Future.wait([stdoutFinished, stderrFinished])
+              .timeout(const Duration(seconds: 2));
+        } on Exception {
+          // Keep any already captured output.
+        }
+      }
+      final detail = output.toString().trim();
+      await log('FAILED before handshake; processExit=${exitCode ?? "still running"}; '
+          'output=${detail.isEmpty ? "(empty)" : detail}');
+      throw StateError('Обновлятор не подготовил установку '
+          '(PowerShell: ${exitCode == null ? "нет подтверждения" : "код $exitCode"}). '
+          '${detail.isEmpty ? "" : "Ошибка: ${detail.length > 420 ? detail.substring(0, 420) : detail}. "}'
+          'Подробности: ${launcherLog.path}');
     }
+    await log('Payload staged. Handshake received. Closing Circle for atomic replacement.');
     try {
       await handshake.delete();
     } on FileSystemException {
       // The external updater may still have its handshake open momentarily.
     }
-    // The detached updater now waits for this exact process to terminate,
-    // swaps the full runtime folder, restores Inno uninstall metadata and
-    // starts the new binary. Account/session data stays in app support.
+    // PowerShell waits until this exact process terminates, swaps full runtime
+    // files, restores Inno uninstall metadata, and restarts the new Circle.
     exit(0);
   }
+
 }

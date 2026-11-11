@@ -1,0 +1,12 @@
+Circle Windows 0.8.1, changed files from 0.8.0:
+.github/workflows/windows.yml
+CHANGELOG.md
+README.md
+build-installer.ps1
+docs/UPDATER-0.8.1.md
+installer/Circle.iss
+lib/main.dart
+lib/updater.dart
+pubspec.yaml
+test/updater_test.dart
+tool/validate_package.py
