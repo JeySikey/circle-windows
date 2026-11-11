@@ -447,6 +447,123 @@ function circle_desktop_dispatch(string $route,array $actor): void {
         mobile_reply(['ok'=>true,'url'=>$url,'token'=>$token,'room'=>$room,'title'=>$title,'expires_in'=>120]);
     }
     // Trust review remains admin-only and subject to the same audit trail as the web UI.
+    // Platform console mirrors the feature switches and audit timeline on the website.
+    if($route==='desktop-platform-console'){
+        mobile_method('GET');desktop_admin($actor);
+        $features=db()->query('SELECT feature_key,description,enabled,updated_at FROM platform_features ORDER BY feature_key')->fetchAll(PDO::FETCH_ASSOC);
+        foreach($features as &$feature)$feature['enabled']=(bool)$feature['enabled'];
+        unset($feature);
+        $audit=db()->query('SELECT l.action,l.created_at,u.username FROM audit_log l LEFT JOIN users u ON u.id=l.user_id ORDER BY l.id DESC LIMIT 60')->fetchAll(PDO::FETCH_ASSOC);
+        mobile_reply(['ok'=>true,'features'=>$features,'audit'=>$audit]);
+    }
+    if($route==='desktop-feature-toggle'){
+        desktop_admin($actor);$d=desktop_input();
+        $key=(string)($d['feature_key']??'');
+        if(!array_key_exists('enabled',$d)||!is_bool($d['enabled'])||!preg_match('/^[a-z][a-z0-9-]{0,79}$/D',$key))mobile_fail('INVALID_FEATURE',422);
+        $enabled=$d['enabled'];
+        db()->beginTransaction();
+        try{
+            $find=db()->prepare('SELECT feature_key FROM platform_features WHERE feature_key=? FOR UPDATE');
+            $find->execute([$key]);
+            if(!$find->fetchColumn()){db()->rollBack();mobile_fail('FEATURE_NOT_FOUND',404);}
+            db()->prepare('UPDATE platform_features SET enabled=?,updated_at=NOW() WHERE feature_key=?')->execute([$enabled?1:0,$key]);
+            db()->commit();
+        }catch(Throwable $error){if(db()->inTransaction())db()->rollBack();throw $error;}
+        audit_event($uid,'feature.toggled',['feature'=>$key,'enabled'=>$enabled]);
+        mobile_reply(['ok'=>true]);
+    }
+    // Legacy reports: the same queue, archive and decisions as the web admin UI.
+    // Read access never exposes other users' private-message contents.
+    if($route==='desktop-moderation-inbox'){
+        mobile_method('GET');desktop_admin($actor);
+        $q=db()->query("SELECT r.id,r.reporter_id,r.target_user_id,r.reason,r.status,r.created_at,
+            reporter.username AS reporter,target.username AS target
+            FROM moderation_reports r JOIN users reporter ON reporter.id=r.reporter_id
+            LEFT JOIN users target ON target.id=r.target_user_id
+            WHERE r.status IN ('OPEN','REVIEWING') ORDER BY r.id DESC LIMIT 100");
+        mobile_reply(['ok'=>true,'items'=>desktop_response_rows($q)]);
+    }
+    if($route==='desktop-moderation-archive'){
+        mobile_method('GET');desktop_admin($actor);
+        $page=min(10000,max(1,(int)($_GET['page']??1)));
+        $offset=($page-1)*30;
+        $legacy=db()->prepare("SELECT r.id,r.target_user_id,r.reason,r.status,r.updated_at,r.reporter_id,
+            reporter.username AS reporter,target.username AS target,moderator.username AS moderator
+            FROM moderation_reports r JOIN users reporter ON reporter.id=r.reporter_id
+            LEFT JOIN users target ON target.id=r.target_user_id
+            LEFT JOIN users moderator ON moderator.id=r.moderator_id
+            WHERE r.status IN ('RESOLVED','REJECTED') ORDER BY r.updated_at DESC,r.id DESC LIMIT 30 OFFSET ?");
+        $legacy->bindValue(1,$offset,PDO::PARAM_INT);$legacy->execute();
+        $trust=db()->prepare("SELECT c.id,c.source_type,c.source_id,c.target_user_id,c.excerpt,c.status,
+            c.reviewed_at,c.resolution_note,target.username AS target,moderator.username AS moderator
+            FROM circle_trust_cases c LEFT JOIN users target ON target.id=c.target_user_id
+            LEFT JOIN users moderator ON moderator.id=c.moderator_id
+            WHERE c.status IN ('CONFIRMED','DISMISSED') ORDER BY c.reviewed_at DESC,c.id DESC LIMIT 30 OFFSET ?");
+        $trust->bindValue(1,$offset,PDO::PARAM_INT);$trust->execute();
+        $legacyRows=desktop_response_rows($legacy);$trustRows=desktop_response_rows($trust);
+        $history=[];
+        foreach(['LEGACY'=>$legacyRows,'TRUST'=>$trustRows] as $kind=>$rows){
+            $ids=array_map(static fn($r)=>(int)$r['id'],$rows);
+            if(!$ids)continue;
+            $marks=implode(',',array_fill(0,count($ids),'?'));
+            $h=db()->prepare('SELECT d.case_kind,d.case_id,d.action,d.note,d.sanction,d.duration_days,d.created_at,u.username AS actor
+                FROM circle_moderation_decisions d LEFT JOIN users u ON u.id=d.actor_id
+                WHERE d.case_kind=? AND d.case_id IN ('.$marks.') ORDER BY d.id ASC');
+            $h->execute(array_merge([$kind],$ids));
+            foreach($h->fetchAll(PDO::FETCH_ASSOC) as $entry){
+                $history[$kind.':'.(int)$entry['case_id']][]=$entry;
+            }
+        }
+        mobile_reply(['ok'=>true,'page'=>$page,'legacy'=>$legacyRows,'trust'=>$trustRows,'history'=>$history]);
+    }
+    if($route==='desktop-moderation-decide'){
+        desktop_admin($actor);desktop_feature('moderation');$d=desktop_input();
+        $reportId=desktop_positive($d['report_id']??0);
+        $status=(string)($d['status']??'');
+        $note=mb_substr(trim((string)($d['note']??'')),0,500);
+        $sanction=(string)($d['sanction']??'NONE');
+        if($reportId<1||!in_array($status,['REVIEWING','RESOLVED','REJECTED'],true)
+            ||!in_array($sanction,['NONE','WARNING'],true)
+            ||($status!=='RESOLVED'&&$sanction!=='NONE')
+            ||($status!=='REVIEWING'&&mb_strlen($note)<3))mobile_fail('INVALID_DECISION',422);
+        db()->beginTransaction();
+        try{
+            $lock=db()->prepare('SELECT status FROM moderation_reports WHERE id=? FOR UPDATE');
+            $lock->execute([$reportId]);$previous=$lock->fetchColumn();
+            if($previous===false||!in_array($previous,['OPEN','REVIEWING'],true)){
+                db()->rollBack();mobile_fail('REPORT_CLOSED',409);
+            }
+            db()->prepare('UPDATE moderation_reports SET status=?,moderator_id=?,updated_at=NOW() WHERE id=?')
+                ->execute([$status,$uid,$reportId]);
+            db()->prepare('INSERT INTO circle_moderation_decisions(case_kind,case_id,action,actor_id,note,sanction) VALUES(?,?,?,?,?,?)')
+                ->execute(['LEGACY',$reportId,$status,$uid,$note,$sanction]);
+            db()->commit();
+        }catch(Throwable $error){if(db()->inTransaction())db()->rollBack();throw $error;}
+        audit_event($uid,'moderation.report_status',['report_id'=>$reportId,'status'=>$status,'sanction'=>$sanction]);
+        mobile_reply(['ok'=>true]);
+    }
+    // Users can explicitly report messages from a conversation they belong to.
+    // Like the website: no automated moderator access to all private conversations.
+    if($route==='desktop-dm-report'){
+        desktop_feature('direct-messages');$d=desktop_input();
+        $messageId=desktop_positive($d['message_id']??0);
+        $reason=mb_substr(trim((string)($d['reason']??'')),0,500);
+        if($messageId<1||mb_strlen($reason)<5)mobile_fail('INVALID_REASON',422);
+        $quota=db()->prepare("SELECT COUNT(*) FROM circle_trust_cases WHERE reporter_id=? AND source_type='DM_REPORT' AND created_at>DATE_SUB(NOW(),INTERVAL 1 DAY)");
+        $quota->execute([$uid]);if((int)$quota->fetchColumn()>=5)mobile_fail('RATE_LIMIT',429);
+        $q=db()->prepare('SELECT m.id,m.conversation_id,m.user_id,m.body FROM dm_messages m
+            JOIN dm_members dm ON dm.conversation_id=m.conversation_id AND dm.user_id=? WHERE m.id=? LIMIT 1');
+        $q->execute([$uid,$messageId]);$message=$q->fetch(PDO::FETCH_ASSOC);
+        if(!$message||(int)$message['user_id']===$uid)mobile_fail('FORBIDDEN',403);
+        mobile_dm_access((int)$message['conversation_id'],$uid);
+        $old=db()->prepare("SELECT id FROM circle_trust_cases WHERE source_type='DM_REPORT' AND source_id=? AND reporter_id=? LIMIT 1");
+        $old->execute([$messageId,$uid]);if($old->fetchColumn())mobile_fail('REPORT_ALREADY_EXISTS',409);
+        db()->prepare("INSERT INTO circle_trust_cases(source_type,source_id,rule_id,target_user_id,reporter_id,excerpt,status,resolution_note,created_at)
+            VALUES('DM_REPORT',?,NULL,?,?,?,'OPEN',?,NOW())")
+            ->execute([$messageId,(int)$message['user_id'],$uid,mb_substr((string)$message['body'],0,240),$reason]);
+        audit_event($uid,'trust.dm_reported',['message_id'=>$messageId]);
+        mobile_reply(['ok'=>true]);
+    }
     if($route==='desktop-trust-panel'){
         mobile_method('GET');desktop_admin($actor);
         $q=db()->prepare('SELECT id,phrase,category,severity,enabled FROM circle_trust_rules ORDER BY id DESC LIMIT 200');$q->execute();$rules=desktop_response_rows($q);

@@ -1,0 +1,25 @@
+Circle Windows 0.9.0 — изменённые файлы относительно 0.8.1
+
+Загрузите эти файлы поверх существующего GitHub-репозитория, сохраняя
+структуру каталогов. Остальные файлы не удаляйте.
+Отдельно замените api/desktop_ext.php на сайте из FTP-патча.
+Не меняйте приватный ключ подписи Ed25519.
+
+.github/workflows/windows.yml
+CHANGELOG.md
+README.md
+build-installer.ps1
+docs/WEB-TO-DESKTOP-0.9.0.md
+installer/Circle.iss
+lib/api.dart
+lib/command_palette.dart
+lib/design.dart
+lib/main.dart
+lib/moderation_center.dart
+lib/platform_console.dart
+pubspec.yaml
+server_patch/api/desktop_ext.php
+test/desktop_command_moderation_test.dart
+tool/check_desktop_contract.py
+tool/test_moderation_contract.py
+tool/validate_package.py

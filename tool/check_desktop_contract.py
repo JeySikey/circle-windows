@@ -9,6 +9,8 @@ main=(root/'lib/main.dart').read_text(encoding='utf-8')
 presence=(root/'lib/social_presence.dart').read_text(encoding='utf-8')
 client += presence
 client += (root/'lib/desktop_discovery.dart').read_text(encoding='utf-8')
+client += (root/'lib/moderation_center.dart').read_text(encoding='utf-8')
+client += (root/'lib/platform_console.dart').read_text(encoding='utf-8')
 api=(root/'server_patch/api/desktop_ext.php').read_text(encoding='utf-8')
 mobile=(root/'server_patch/api/mobile.php').read_text(encoding='utf-8')
 required={
@@ -27,6 +29,8 @@ required={
  'desktop-presence','desktop-presence-set','desktop-presence-ping',
  'desktop-presence-people','desktop-saved-chat','desktop-conversations',
  'desktop-message-search','desktop-community-stats',
+ 'desktop-moderation-inbox','desktop-moderation-archive','desktop-moderation-decide','desktop-dm-report',
+ 'desktop-platform-console','desktop-feature-toggle',
 }
 for route in sorted(required):
     if f"'{route}'" not in client+main:

@@ -592,3 +592,49 @@ class _CircleConversationTileState extends State<CircleConversationTile> {
     );
   }
 }
+
+/// Message-specific surface: reacts to the pointer without creating a ticker
+/// for each visible message. This keeps long conversations inexpensive.
+class CircleMessageShell extends StatefulWidget {
+  const CircleMessageShell({super.key, required this.mine, required this.child});
+  final bool mine;
+  final Widget child;
+  @override
+  State<CircleMessageShell> createState() => _CircleMessageShellState();
+}
+
+class _CircleMessageShellState extends State<CircleMessageShell> {
+  bool hover = false;
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return MouseRegion(
+      onEnter: (_) => setState(() => hover = true),
+      onExit: (_) => setState(() => hover = false),
+      child: AnimatedContainer(
+        duration: CircleMotion.duration(context, CircleMotion.fast),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.fromLTRB(16, 11, 12, 8),
+        decoration: BoxDecoration(
+          gradient: isDark ? LinearGradient(
+            begin: Alignment.topLeft, end: Alignment.bottomRight,
+            colors: widget.mine
+              ? const [Color(0xFF2A2924), Color(0xFF211F1B)]
+              : const [Color(0xFF212329), Color(0xFF1A1C20)],
+          ) : null,
+          color: isDark ? null : Theme.of(context).cardTheme.color,
+          border: Border.all(color: circleGold.withValues(alpha:
+            hover ? .55 : widget.mine ? .28 : .085)),
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(17),
+            topRight: const Radius.circular(17),
+            bottomLeft: Radius.circular(widget.mine ? 17 : 5),
+            bottomRight: Radius.circular(widget.mine ? 5 : 17)),
+          boxShadow: hover ? [BoxShadow(color: circleGold.withValues(alpha: .075),
+            blurRadius: 20, spreadRadius: -5)] : [],
+        ),
+        child: widget.child,
+      ),
+    );
+  }
+}

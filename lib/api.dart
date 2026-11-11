@@ -83,7 +83,12 @@ class CircleApi {
     if (token == null) return Future.error(CircleError('Требуется вход в аккаунт'));
     final cacheable = {'avatar', 'profile-cover', 'community-icon', 'community-banner'}.contains(route);
     final key = '$route:$id';
-    if (cacheable && _imageCache.containsKey(key)) return _imageCache[key]!;
+    if (cacheable && _imageCache.containsKey(key)) {
+      // Move recently visited avatars to the end, so eviction is true LRU.
+      final cached = _imageCache.remove(key)!;
+      _imageCache[key] = cached;
+      return cached;
+    }
     final request = _client.get(uri(route, {'id': '$id'}),
         headers: {'Authorization': 'Bearer $token'}).timeout(const Duration(seconds: 45)).then((r) {
       if (r.statusCode != 200) throw CircleError('Медиа недоступно: HTTP ${r.statusCode}');
