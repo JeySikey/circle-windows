@@ -81,13 +81,15 @@ function mobile_limited(string $hash): bool {
 function mobile_failed_login(string $hash): void {db()->prepare('INSERT INTO login_attempts(ip_hash,attempted_at) VALUES(?,NOW())')->execute([$hash]);}
 function mobile_method(string $wanted): void {if(($_SERVER['REQUEST_METHOD']??'')!==$wanted)mobile_fail('METHOD_NOT_ALLOWED',405);}
 
-/** Only a member of a two-person DM can read/write attachments. */
+/** A member can access a one-person Favorites room or a two-person DM.
+ * Group conversations remain deliberately unsupported in this API.
+ */
 function mobile_dm_access(int $conversationId,int $uid): void {
     if($conversationId<1)mobile_fail('INVALID_CONVERSATION',400);
     $q=db()->prepare('SELECT COUNT(*) FROM dm_members WHERE conversation_id=? AND user_id=?');
     $q->execute([$conversationId,$uid]);if((int)$q->fetchColumn()!==1)mobile_fail('FORBIDDEN',403);
     $q=db()->prepare('SELECT COUNT(*) FROM dm_members WHERE conversation_id=?');
-    $q->execute([$conversationId]);if((int)$q->fetchColumn()!==2)mobile_fail('UNSUPPORTED_CONVERSATION',422);
+    $q->execute([$conversationId]);if(!in_array((int)$q->fetchColumn(),[1,2],true))mobile_fail('UNSUPPORTED_CONVERSATION',422);
 }
 function mobile_mark_dm_read(int $conversationId,int $uid,int $lastId): void {
     if($lastId<=0)return;

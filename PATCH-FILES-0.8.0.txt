@@ -1,0 +1,22 @@
+Circle Windows 0.8.0 — только изменённые файлы относительно 0.7.1
+
+.github/workflows/windows.yml
+CHANGELOG.md
+README.md
+build-installer.ps1
+docs/DESIGN-AND-PARITY-0.8.0.md
+installer/Circle.iss
+lib/design.dart
+lib/desktop_discovery.dart
+lib/main.dart
+lib/social_presence.dart
+pubspec.yaml
+server_patch/api/desktop_ext.php
+server_patch/api/mobile.php
+test/design_motion_test.dart
+tool/check_desktop_contract.py
+tool/test_desktop_parity.py
+tool/validate_package.py
+
+Удаляемых файлов нет.
+Перед сборкой установите api/mobile.php и api/desktop_ext.php на сайт по FTP.

@@ -46,6 +46,124 @@ function desktop_permission_set(mixed $permissions,array $allowed): bool {
 function circle_desktop_dispatch(string $route,array $actor): void {
     if(!str_starts_with($route,'desktop-'))return;
     $uid=(int)$actor['id'];
+    // Desktop parity: presence and the user's private Favorites room.
+    // Read access to presence is limited to friends and shared communities.
+    if($route==='desktop-presence'){
+        mobile_method('GET');desktop_feature('presence');
+        $q=db()->prepare('SELECT status FROM user_presence WHERE user_id=? LIMIT 1');
+        $q->execute([$uid]);$status=(string)($q->fetchColumn()?:'ONLINE');
+        mobile_reply(['ok'=>true,'status'=>$status]);
+    }
+    if($route==='desktop-presence-set'){
+        desktop_feature('presence');$d=desktop_input();
+        $status=strtoupper((string)($d['status']??''));
+        if(!in_array($status,['ONLINE','IDLE','DND'],true))mobile_fail('INVALID_STATUS',422);
+        db()->prepare('INSERT INTO user_presence(user_id,status,last_seen_at,updated_at) VALUES(?,?,NOW(),NOW()) ON DUPLICATE KEY UPDATE status=VALUES(status),last_seen_at=NOW(),updated_at=NOW()')->execute([$uid,$status]);
+        mobile_reply(['ok'=>true,'status'=>$status]);
+    }
+    if($route==='desktop-presence-ping'){
+        desktop_feature('presence');mobile_method('POST');
+        db()->prepare("INSERT INTO user_presence(user_id,status,last_seen_at,updated_at) VALUES(?,'ONLINE',NOW(),NOW()) ON DUPLICATE KEY UPDATE last_seen_at=NOW(),updated_at=NOW()")->execute([$uid]);
+        mobile_reply(['ok'=>true]);
+    }
+    if($route==='desktop-presence-people'){
+        desktop_feature('presence');mobile_method('GET');
+        $q=db()->prepare("SELECT DISTINCT x.id,x.username,p.display_name,p.avatar_path,COALESCE(up.status,'ONLINE') AS saved_status,CASE WHEN up.last_seen_at>=DATE_SUB(NOW(),INTERVAL 90 SECOND) THEN 1 ELSE 0 END AS fresh FROM users x LEFT JOIN user_profiles p ON p.user_id=x.id LEFT JOIN user_presence up ON up.user_id=x.id WHERE x.id<>? AND (EXISTS(SELECT 1 FROM friendships f WHERE f.status='ACCEPTED' AND ((f.requester_id=? AND f.addressee_id=x.id) OR (f.addressee_id=? AND f.requester_id=x.id))) OR EXISTS(SELECT 1 FROM community_members a JOIN community_members b ON b.community_id=a.community_id WHERE a.user_id=? AND b.user_id=x.id)) ORDER BY x.username LIMIT 100");
+        $q->execute([$uid,$uid,$uid,$uid]);$rows=[];
+        foreach($q->fetchAll(PDO::FETCH_ASSOC) as $r){
+            $status=(int)$r['fresh']===1?(string)$r['saved_status']:'OFFLINE';
+            $rows[]=['id'=>(int)$r['id'],'username'=>$r['username'],
+                'display_name'=>$r['display_name']??'',
+                'avatar_url'=>!empty($r['avatar_path'])?'/api/mobile.php?route=avatar&id='.$r['id']:null,
+                'status'=>$status];
+        }
+        $rank=['ONLINE'=>0,'IDLE'=>1,'DND'=>2,'OFFLINE'=>3];
+        usort($rows,static fn($a,$b)=>($rank[$a['status']]<=>$rank[$b['status']])?:strcmp((string)$a['username'],(string)$b['username']));
+        mobile_reply(['ok'=>true,'items'=>$rows]);
+    }
+    if($route==='desktop-saved-chat'){
+        desktop_feature('direct-messages');mobile_method('POST');
+        // Atomic creation prevents two concurrent app windows creating two favorites.
+        db()->beginTransaction();
+        try{
+            $lock=db()->prepare('SELECT id FROM users WHERE id=? FOR UPDATE');$lock->execute([$uid]);
+            if(!$lock->fetchColumn()){db()->rollBack();mobile_fail('UNAUTHORIZED',401);}
+            $q=db()->prepare('SELECT d.id FROM dm_conversations d JOIN dm_members m ON m.conversation_id=d.id AND m.user_id=? WHERE (SELECT COUNT(*) FROM dm_members x WHERE x.conversation_id=d.id)=1 ORDER BY d.id LIMIT 1');
+            $q->execute([$uid]);$id=(int)($q->fetchColumn()?:0);
+            if($id<1){
+                db()->prepare('INSERT INTO dm_conversations(created_at,updated_at) VALUES(NOW(),NOW())')->execute();
+                $id=(int)db()->lastInsertId();
+                db()->prepare('INSERT INTO dm_members(conversation_id,user_id,joined_at) VALUES(?,?,NOW())')->execute([$id,$uid]);
+            }
+            db()->prepare('INSERT INTO dm_conversation_preferences(conversation_id,user_id,is_favorite,updated_at) VALUES(?,?,1,NOW()) ON DUPLICATE KEY UPDATE is_favorite=1,updated_at=NOW()')->execute([$id,$uid]);
+            db()->commit();
+        }catch(Throwable $e){if(db()->inTransaction())db()->rollBack();throw $e;}
+        mobile_reply(['ok'=>true,'conversation_id'=>$id]);
+    }
+    if($route==='desktop-conversations'){
+        desktop_feature('direct-messages');mobile_method('GET');
+        $q=db()->prepare("SELECT d.id,d.updated_at,
+          (SELECT CASE WHEN TRIM(COALESCE(m.body,''))='' AND EXISTS(SELECT 1 FROM dm_attachments a WHERE a.message_id=m.id) THEN 'Вложение' ELSE COALESCE(m.body,'') END FROM dm_messages m WHERE m.conversation_id=d.id ORDER BY m.id DESC LIMIT 1) AS last_message,
+          peer.user_id AS peer_id,u.username,p.display_name,p.avatar_path,
+          (SELECT COUNT(*) FROM dm_members n WHERE n.conversation_id=d.id) AS member_count
+          FROM dm_conversations d JOIN dm_members mine ON mine.conversation_id=d.id AND mine.user_id=?
+          LEFT JOIN dm_members peer ON peer.conversation_id=d.id AND peer.user_id<>?
+          LEFT JOIN users u ON u.id=peer.user_id LEFT JOIN user_profiles p ON p.user_id=u.id
+          LEFT JOIN dm_conversation_preferences pref ON pref.conversation_id=d.id AND pref.user_id=?
+          WHERE COALESCE(pref.is_archived,0)=0 AND (SELECT COUNT(*) FROM dm_members n WHERE n.conversation_id=d.id) IN (1,2)
+          ORDER BY d.updated_at DESC LIMIT 100");
+        $q->execute([$uid,$uid,$uid]);$rows=[];
+        foreach($q->fetchAll(PDO::FETCH_ASSOC) as $r){
+            $isSaved=(int)$r['member_count']===1;
+            $peer=$isSaved?['id'=>0,'username'=>'saved','display_name'=>'Избранное','avatar_url'=>null]
+                :mobile_profile(['id'=>$r['peer_id'],'username'=>$r['username'],'display_name'=>$r['display_name'],'avatar_path'=>$r['avatar_path']]);
+            $rows[]=['id'=>(int)$r['id'],'updated_at'=>$r['updated_at'],
+              'last_message'=>$r['last_message']??'','peer'=>$peer,'saved'=>$isSaved];
+        }
+        mobile_reply(['ok'=>true,'items'=>$rows]);
+    }
+
+    // Web parity: message search, scoped to channels and DMs the actor belongs to.
+    if($route==='desktop-message-search'){
+        desktop_feature('search');mobile_method('GET');
+        $term=trim((string)($_GET['q']??''));$author=trim((string)($_GET['author']??''));
+        if(mb_strlen($term)<2||mb_strlen($term)>80||mb_strlen($author)>24)mobile_fail('INVALID_QUERY',422);
+        $from=(string)($_GET['date_from']??'');$to=(string)($_GET['date_to']??'');
+        foreach([$from,$to] as $date){
+            if($date==='')continue;
+            $parsed=DateTime::createFromFormat('!Y-m-d',$date);
+            if(!$parsed||$parsed->format('Y-m-d')!==$date)mobile_fail('INVALID_DATE',422);
+        }
+        if($from!==''&&$to!==''&&$from>$to){$tmp=$from;$from=$to;$to=$tmp;}
+        $like='%'.str_replace(['\\','%','_'],['\\\\','\\%','\\_'],$term).'%';
+        $where=['m.body LIKE ?'];$params=[$uid,$like];
+        if($author!==''){$where[]='u.username LIKE ?';$params[]='%'.$author.'%';}
+        if($from!==''){$where[]='m.created_at>=?';$params[]=$from.' 00:00:00';}
+        if($to!==''){$where[]='m.created_at<DATE_ADD(?,INTERVAL 1 DAY)';$params[]=$to.' 00:00:00';}
+        $sql='SELECT m.id,m.body,m.created_at,u.username,c.id AS community_id,c.name AS community_name,ch.id AS channel_id,ch.name AS channel_name FROM messages m JOIN channels ch ON ch.id=m.channel_id JOIN communities c ON c.id=ch.community_id JOIN community_members cm ON cm.community_id=c.id AND cm.user_id=? JOIN users u ON u.id=m.user_id WHERE '.implode(' AND ',$where).' ORDER BY m.id DESC LIMIT 50';
+        $q=db()->prepare($sql);$q->execute($params);$channelRows=$q->fetchAll(PDO::FETCH_ASSOC);
+        $dmRows=[];
+        if(feature_enabled('dm-search')){
+            $dq=db()->prepare('SELECT m.id,m.body,m.created_at,m.conversation_id,u.username FROM dm_messages m JOIN dm_members mine ON mine.conversation_id=m.conversation_id AND mine.user_id=? JOIN users u ON u.id=m.user_id WHERE (SELECT COUNT(*) FROM dm_members gm WHERE gm.conversation_id=m.conversation_id)<=2 AND '.implode(' AND ',$where).' ORDER BY m.id DESC LIMIT 30');
+            $dq->execute($params);$dmRows=$dq->fetchAll(PDO::FETCH_ASSOC);
+        }
+        mobile_reply(['ok'=>true,'channels'=>$channelRows,'direct_messages'=>$dmRows]);
+    }
+    // Web parity: activity statistics only for community members.
+    if($route==='desktop-community-stats'){
+        desktop_feature('community-stats');mobile_method('GET');
+        $community=desktop_positive($_GET['community_id']??0);
+        desktop_member($community,$uid);
+        $q=db()->prepare('SELECT name FROM communities WHERE id=? LIMIT 1');
+        $q->execute([$community]);$name=(string)$q->fetchColumn();
+        $q=db()->prepare('SELECT (SELECT COUNT(*) FROM community_members WHERE community_id=?) AS members,(SELECT COUNT(*) FROM messages m JOIN channels ch ON ch.id=m.channel_id WHERE ch.community_id=?) AS messages,(SELECT COUNT(*) FROM messages m JOIN channels ch ON ch.id=m.channel_id WHERE ch.community_id=? AND m.created_at>=DATE_SUB(NOW(),INTERVAL 7 DAY)) AS messages_week,(SELECT COUNT(DISTINCT m.user_id) FROM messages m JOIN channels ch ON ch.id=m.channel_id WHERE ch.community_id=? AND m.created_at>=DATE_SUB(NOW(),INTERVAL 7 DAY)) AS active_week,(SELECT COUNT(*) FROM community_members WHERE community_id=? AND joined_at>=DATE_SUB(NOW(),INTERVAL 7 DAY)) AS new_members_week');
+        $q->execute([$community,$community,$community,$community,$community]);
+        $summary=$q->fetch(PDO::FETCH_ASSOC)?:[];
+        $d=db()->prepare('SELECT DATE(m.created_at) AS day,COUNT(*) AS total FROM messages m JOIN channels ch ON ch.id=m.channel_id WHERE ch.community_id=? AND m.created_at>=DATE_SUB(CURDATE(),INTERVAL 6 DAY) GROUP BY DATE(m.created_at) ORDER BY day');
+        $d->execute([$community]);
+        mobile_reply(['ok'=>true,'community_name'=>$name,'summary'=>$summary,'daily'=>$d->fetchAll(PDO::FETCH_ASSOC)]);
+    }
+
     // Account security — server retains ownership of authorization decisions.
     if($route==='desktop-security'){
         mobile_method('GET');desktop_feature('account-security');

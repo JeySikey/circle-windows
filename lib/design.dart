@@ -64,18 +64,37 @@ ThemeData circleTheme({bool light = false}) {
       enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: stroke)),
       focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: circleGoldBright, width: 1.4)),
     ),
-    filledButtonTheme: FilledButtonThemeData(style: FilledButton.styleFrom(
-      backgroundColor: circleGold, foregroundColor: const Color(0xFF1A1712),
-      textStyle: const TextStyle(fontWeight: FontWeight.w700, letterSpacing: .1),
-      elevation: 0,
-      minimumSize: const Size(0, 44),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+    filledButtonTheme: FilledButtonThemeData(style: ButtonStyle(
+      minimumSize: const WidgetStatePropertyAll(Size(0, 44)),
+      padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 19, vertical: 12)),
+      animationDuration: const Duration(milliseconds: 180),
+      shape: WidgetStatePropertyAll(RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+      textStyle: const WidgetStatePropertyAll(TextStyle(fontWeight: FontWeight.w700, letterSpacing: .15)),
+      foregroundColor: const WidgetStatePropertyAll(Color(0xFF1B1710)),
+      backgroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.disabled)) return circleGold.withValues(alpha: .28);
+        return states.contains(WidgetState.hovered) ? circleGoldBright : circleGold;
+      }),
+      shadowColor: WidgetStatePropertyAll(circleGold.withValues(alpha: .26)),
+      elevation: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.hovered) ? 5 : 0),
     )),
-    outlinedButtonTheme: OutlinedButtonThemeData(style: OutlinedButton.styleFrom(
-      foregroundColor: light ? const Color(0xFF80602B) : circleGoldBright,
-      side: BorderSide(color: stroke),
-      minimumSize: const Size(0, 43),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+    outlinedButtonTheme: OutlinedButtonThemeData(style: ButtonStyle(
+      animationDuration: const Duration(milliseconds: 180),
+      minimumSize: const WidgetStatePropertyAll(Size(0, 43)),
+      padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 16, vertical: 11)),
+      shape: WidgetStatePropertyAll(RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+      foregroundColor: WidgetStatePropertyAll(light ? const Color(0xFF80602B) : circleGoldBright),
+      backgroundColor: WidgetStateProperty.resolveWith((states) =>
+        states.contains(WidgetState.hovered) ? circleGold.withValues(alpha: .11) : Colors.transparent),
+      side: WidgetStateProperty.resolveWith((states) => BorderSide(color:
+        states.contains(WidgetState.hovered) ? circleGold.withValues(alpha: .7) : stroke,
+        width: states.contains(WidgetState.hovered) ? 1.15 : 1)),
+    )),
+    textButtonTheme: TextButtonThemeData(style: ButtonStyle(
+      animationDuration: const Duration(milliseconds: 160),
+      foregroundColor: WidgetStatePropertyAll(light ? const Color(0xFF9F782F) : circleGoldBright),
+      overlayColor: WidgetStatePropertyAll(circleGold.withValues(alpha: .10)),
+      shape: WidgetStatePropertyAll(RoundedRectangleBorder(borderRadius: BorderRadius.circular(11))),
     )),
     iconButtonTheme: IconButtonThemeData(style: IconButton.styleFrom(foregroundColor: muted, hoverColor: gold.withValues(alpha: .1), highlightColor: gold.withValues(alpha: .13))),
     splashFactory: InkSparkle.splashFactory,
@@ -101,29 +120,54 @@ class CircleLogo extends StatelessWidget {
   ]);
 }
 
-class CircleSurface extends StatelessWidget {
-  const CircleSurface({super.key, required this.child, this.padding = const EdgeInsets.all(20), this.radius = 18, this.accent = false});
+/// Interactive cards use a single implicit animation on hover; no ticking
+/// animation controller is created for long feeds or off-screen cards.
+class CircleSurface extends StatefulWidget {
+  const CircleSurface({super.key, required this.child,
+    this.padding = const EdgeInsets.all(20), this.radius = 20,
+    this.accent = false, this.interactive = false, this.onTap});
   final Widget child;
   final EdgeInsetsGeometry padding;
   final double radius;
   final bool accent;
-  @override Widget build(BuildContext context) => Container(
-    padding: padding,
-    decoration: BoxDecoration(
-      gradient: Theme.of(context).brightness == Brightness.dark
-        ? const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight,
-            colors: [Color(0xFF1C1E23), Color(0xFF17191D)])
-        : null,
-      color: Theme.of(context).brightness == Brightness.dark
-        ? null : Theme.of(context).cardTheme.color,
-      borderRadius: BorderRadius.circular(radius),
-      border: Border.all(color: accent ? circleGold.withValues(alpha: .58) : Theme.of(context).dividerColor),
-      boxShadow: [
-        if (accent && Theme.of(context).brightness == Brightness.dark)
-          BoxShadow(color: circleGold.withValues(alpha: .105), blurRadius: 24, spreadRadius: 0.5),
-        BoxShadow(color: Colors.black.withValues(alpha: accent ? .17 : .085), blurRadius: accent ? 19 : 10, offset: const Offset(0, 4)),
-      ],
-    ), child: child);
+  final bool interactive;
+  final VoidCallback? onTap;
+  @override State<CircleSurface> createState() => _CircleSurfaceState();
+}
+class _CircleSurfaceState extends State<CircleSurface> {
+  bool hovered = false;
+  @override Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final selected = widget.accent || (hovered && (widget.interactive || widget.onTap != null));
+    return MouseRegion(
+      onEnter: widget.interactive || widget.onTap != null ? (_) => setState(() => hovered = true) : null,
+      onExit: widget.interactive || widget.onTap != null ? (_) => setState(() => hovered = false) : null,
+      child: AnimatedContainer(
+        duration: CircleMotion.duration(context, CircleMotion.normal), curve: Curves.easeOutCubic,
+        decoration: BoxDecoration(
+          color: dark ? null : Theme.of(context).cardTheme.color,
+          gradient: dark ? LinearGradient(
+            begin: Alignment.topLeft, end: Alignment.bottomRight,
+            colors: selected
+              ? const [Color(0xFF242321), Color(0xFF1A1C20), Color(0xFF17191D)]
+              : const [Color(0xFF1D2025), Color(0xFF181A1F)]) : null,
+          borderRadius: BorderRadius.circular(widget.radius),
+          border: Border.all(color: selected
+            ? circleGold.withValues(alpha: hovered ? .69 : .42)
+            : Theme.of(context).dividerColor.withValues(alpha: .68)),
+          boxShadow: [
+            if (dark && selected) BoxShadow(color: circleGold.withValues(alpha: hovered ? .15 : .07), blurRadius: hovered ? 32 : 22, spreadRadius: -3),
+            BoxShadow(color: Colors.black.withValues(alpha: dark ? .14 : .035), blurRadius: hovered ? 22 : 11, offset: const Offset(0, 7)),
+          ],
+        ),
+        child: Material(color: Colors.transparent, child: InkWell(
+          onTap: widget.onTap,
+          borderRadius: BorderRadius.circular(widget.radius),
+          child: Padding(padding: widget.padding, child: widget.child),
+        )),
+      ),
+    );
+  }
 }
 
 class CircleSection extends StatelessWidget {
@@ -214,4 +258,337 @@ class _CircleRemoteImageState extends State<CircleRemoteImage> {
     if (!snapshot.hasData) return const SizedBox.shrink();
     return Image.memory(snapshot.data! is Uint8List ? snapshot.data! as Uint8List : Uint8List.fromList(snapshot.data!), width: double.infinity, height: double.infinity, fit: widget.fit, cacheWidth: 1800, gaplessPlayback: true);
   });
+}
+
+
+/// Motion tokens used across the desktop interface. Respect reduced motion
+/// on supported Windows accessibility configurations.
+class CircleMotion {
+  static const fast = Duration(milliseconds: 150);
+  static const normal = Duration(milliseconds: 230);
+  static const slow = Duration(milliseconds: 340);
+  static Duration duration(BuildContext context, Duration fallback) =>
+    MediaQuery.maybeOf(context)?.disableAnimations == true ? Duration.zero : fallback;
+}
+
+/// Branded button: hover lift, press compression, a restrained gold halo.
+/// InkWell provides keyboard activation and semantic focus out of the box.
+class CircleAccentButton extends StatefulWidget {
+  const CircleAccentButton({super.key, required this.label, required this.onPressed,
+    this.icon, this.primary = true, this.compact = false, this.busy = false});
+  final String label;
+  final VoidCallback? onPressed;
+  final IconData? icon;
+  final bool primary;
+  final bool compact;
+  final bool busy;
+  @override State<CircleAccentButton> createState() => _CircleAccentButtonState();
+}
+class _CircleAccentButtonState extends State<CircleAccentButton> {
+  bool hovered = false;
+  bool pressed = false;
+  @override Widget build(BuildContext context) {
+    final enabled = widget.onPressed != null && !widget.busy;
+    final bright = enabled && (hovered || pressed);
+    final duration = CircleMotion.duration(context, CircleMotion.fast);
+    return MouseRegion(
+      onEnter: enabled ? (_) => setState(() => hovered = true) : null,
+      onExit: enabled ? (_) => setState(() {hovered = false; pressed = false;}) : null,
+      child: AnimatedScale(
+        scale: pressed && enabled ? .975 : hovered && enabled ? 1.018 : 1,
+        duration: duration, curve: Curves.easeOutCubic,
+        child: AnimatedContainer(
+          duration: duration,
+          decoration: BoxDecoration(
+            gradient: widget.primary ? LinearGradient(colors: [
+              bright ? circleGoldBright : circleGold,
+              bright ? const Color(0xFFEACB90) : const Color(0xFFD4B271),
+            ]) : null,
+            color: widget.primary ? null : circleGold.withValues(alpha: bright ? .15 : .075),
+            borderRadius: BorderRadius.circular(widget.compact ? 11 : 14),
+            border: Border.all(color: circleGold.withValues(alpha: widget.primary ? .9 : bright ? .78 : .35)),
+            boxShadow: enabled && bright ? [BoxShadow(
+              color: circleGold.withValues(alpha: widget.primary ? .23 : .12),
+              blurRadius: 24, spreadRadius: -2,
+            )] : [],
+          ),
+          child: Material(color: Colors.transparent, child: InkWell(
+            borderRadius: BorderRadius.circular(widget.compact ? 11 : 14),
+            onTap: enabled ? widget.onPressed : null,
+            onHighlightChanged: (value) {if (mounted) setState(() => pressed = value);},
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: widget.compact ? 13 : 20, vertical: widget.compact ? 10 : 13),
+              child: Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
+                if (widget.busy) ...[
+                  SizedBox(width: 17, height: 17, child: CircularProgressIndicator(
+                    strokeWidth: 2, color: widget.primary ? const Color(0xFF15120C) : circleGoldBright)),
+                  const SizedBox(width: 10),
+                ] else if (widget.icon != null) ...[
+                  Icon(widget.icon, size: widget.compact ? 17 : 19,
+                    color: widget.primary ? const Color(0xFF19150F) : circleGoldBright),
+                  const SizedBox(width: 9),
+                ],
+                Text(widget.label, maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: enabled
+                    ? widget.primary ? const Color(0xFF19150F) : circleGoldBright
+                    : circleMuted, fontWeight: FontWeight.w700, letterSpacing: .12)),
+              ]),
+            ),
+          )),
+        ),
+      ),
+    );
+  }
+}
+
+/// Single navigation design for the main rail and secondary actions.
+class CircleNavItem extends StatefulWidget {
+  const CircleNavItem({super.key, required this.icon, required this.title,
+    required this.onTap, this.active = false, this.compact = false});
+  final IconData icon;
+  final String title;
+  final VoidCallback onTap;
+  final bool active;
+  final bool compact;
+  @override State<CircleNavItem> createState() => _CircleNavItemState();
+}
+class _CircleNavItemState extends State<CircleNavItem> {
+  bool hovered = false;
+  @override Widget build(BuildContext context) {
+    final lit = widget.active || hovered;
+    return Padding(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      child: Tooltip(message: widget.title, waitDuration: const Duration(milliseconds: 700),
+        child: MouseRegion(
+          onEnter: (_) => setState(() => hovered = true),
+          onExit: (_) => setState(() => hovered = false),
+          child: AnimatedContainer(
+            duration: CircleMotion.duration(context, CircleMotion.normal),
+            curve: Curves.easeOutCubic,
+            decoration: BoxDecoration(
+              gradient: lit ? LinearGradient(colors: [
+                circleGold.withValues(alpha: widget.active ? .18 : .085),
+                circleGold.withValues(alpha: .015),
+              ]) : null,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: lit ? circleGold.withValues(alpha: widget.active ? .58 : .28) : Colors.transparent),
+              boxShadow: widget.active ? [BoxShadow(color: circleGold.withValues(alpha: .13), blurRadius: 20, spreadRadius: -5)] : [],
+            ),
+            child: Material(color: Colors.transparent, child: InkWell(
+              borderRadius: BorderRadius.circular(14), onTap: widget.onTap,
+              child: SizedBox(height: 48, child: Row(children: [
+                AnimatedContainer(duration: CircleMotion.duration(context, CircleMotion.fast),
+                  width: 3, height: widget.active ? 25 : hovered ? 16 : 0,
+                  decoration: BoxDecoration(color: circleGoldBright,
+                    borderRadius: BorderRadius.circular(3),
+                    boxShadow: lit ? [BoxShadow(color: circleGold.withValues(alpha: .35), blurRadius: 9)] : [])),
+                Expanded(child: Row(mainAxisAlignment: widget.compact ? MainAxisAlignment.center : MainAxisAlignment.start, children: [
+                  AnimatedScale(scale: hovered ? 1.10 : 1, duration: CircleMotion.duration(context, CircleMotion.fast),
+                    child: Icon(widget.icon, size: 21,
+                      color: lit ? circleGoldBright : Theme.of(context).textTheme.bodySmall?.color)),
+                  if (!widget.compact) ...[
+                    const SizedBox(width: 14), Expanded(child: Text(widget.title,
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 13.5, fontWeight: widget.active ? FontWeight.w700 : FontWeight.w500,
+                        color: lit ? Theme.of(context).colorScheme.onSurface : circleMuted))),
+                    if (hovered && !widget.active) const Icon(Icons.chevron_right_rounded, size: 15, color: circleGold),
+                    const SizedBox(width: 10),
+                  ],
+                ])),
+              ])),
+            )),
+          ),
+        ),
+      ));
+  }
+}
+
+/// Deliberately small startup/refresh animation (never an expensive full-screen shader).
+class CircleLoadingState extends StatefulWidget {
+  const CircleLoadingState({super.key, this.caption = 'Загружаем твой круг...', this.size = 43});
+  final String caption;
+  final double size;
+  @override State<CircleLoadingState> createState() => _CircleLoadingStateState();
+}
+class _CircleLoadingStateState extends State<CircleLoadingState> with SingleTickerProviderStateMixin {
+  late final AnimationController pulse = AnimationController(vsync: this,
+    duration: const Duration(milliseconds: 1550));
+  @override void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.maybeOf(context)?.disableAnimations == true) {
+      pulse.stop();
+    } else if (!pulse.isAnimating) {
+      pulse.repeat(reverse: true);
+    }
+  }
+  @override void dispose() {pulse.dispose(); super.dispose();}
+  @override Widget build(BuildContext context) {
+    final reduce = MediaQuery.maybeOf(context)?.disableAnimations == true;
+    return Center(child: AnimatedBuilder(animation: pulse, builder: (context, _) {
+      final fade = reduce ? .65 : .35 + .4 * pulse.value;
+      return Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(width: widget.size, height: widget.size,
+          decoration: BoxDecoration(shape: BoxShape.circle,
+            border: Border.all(color: circleGold.withValues(alpha: fade), width: 1.7),
+            boxShadow: [BoxShadow(color: circleGold.withValues(alpha: fade * .22), blurRadius: 24)]),
+          child: const Icon(Icons.auto_awesome_rounded, size: 21, color: circleGoldBright)),
+        const SizedBox(height: 18),
+        Text(widget.caption, style: Theme.of(context).textTheme.bodySmall),
+      ]);
+    }));
+  }
+}
+
+class CircleAmbientBackground extends StatelessWidget {
+  const CircleAmbientBackground({super.key, required this.child});
+  final Widget child;
+  @override Widget build(BuildContext context) {
+    if (Theme.of(context).brightness == Brightness.light) return child;
+    return DecoratedBox(decoration: const BoxDecoration(
+      gradient: RadialGradient(center: Alignment(.60, -1.2), radius: 1.7,
+        colors: [Color(0xFF302A21), Color(0xFF17191D), circleBackground],
+        stops: [0, .32, 1])), child: child);
+  }
+}
+
+class CircleSavedAvatar extends StatelessWidget {
+  const CircleSavedAvatar({super.key});
+  @override Widget build(BuildContext context) => Container(
+    width: 42, height: 42,
+    decoration: BoxDecoration(shape: BoxShape.circle,
+      gradient: LinearGradient(colors: [circleGold.withValues(alpha: .23), circleGold.withValues(alpha: .06)]),
+      border: Border.all(color: circleGold.withValues(alpha: .50))),
+    child: const Icon(Icons.bookmark_rounded, color: circleGoldBright, size: 21));
+}
+
+/// Compact desktop control with animated halo and proper keyboard focus.
+class CircleIconAction extends StatefulWidget {
+  const CircleIconAction({super.key, required this.icon, required this.tooltip,
+    required this.onPressed, this.active = false});
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+  final bool active;
+  @override State<CircleIconAction> createState() => _CircleIconActionState();
+}
+class _CircleIconActionState extends State<CircleIconAction> {
+  bool hovered = false;
+  @override Widget build(BuildContext context) {
+    final glow = widget.active || hovered;
+    return Tooltip(message: widget.tooltip, child: MouseRegion(
+      onEnter: (_) => setState(() => hovered = true),
+      onExit: (_) => setState(() => hovered = false),
+      child: AnimatedContainer(
+        duration: CircleMotion.duration(context, CircleMotion.fast),
+        width: 40, height: 40,
+        decoration: BoxDecoration(
+          color: circleGold.withValues(alpha: glow ? .12 : .025),
+          border: Border.all(color: circleGold.withValues(alpha: glow ? .47 : .08)),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: glow ? [BoxShadow(color: circleGold.withValues(alpha: .13), blurRadius: 18)] : [],
+        ),
+        child: Material(color: Colors.transparent, child: InkWell(
+          onTap: widget.onPressed,
+          borderRadius: BorderRadius.circular(12),
+          child: Center(child: AnimatedScale(
+            scale: hovered ? 1.13 : 1, duration: CircleMotion.duration(context, CircleMotion.fast),
+            child: Icon(widget.icon, size: 20,
+              color: glow ? circleGoldBright : Theme.of(context).textTheme.bodySmall?.color))),
+        )),
+      ),
+    ));
+  }
+}
+
+class CircleProfileMetric extends StatelessWidget {
+  const CircleProfileMetric({super.key, required this.icon, required this.value,
+    required this.label});
+  final IconData icon;
+  final String value;
+  final String label;
+  @override Widget build(BuildContext context) => Container(
+    width: 175, padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(15),
+      gradient: LinearGradient(colors: [circleGold.withValues(alpha: .085),
+        circleGold.withValues(alpha: .02)]),
+      border: Border.all(color: circleGold.withValues(alpha: .18)),
+    ),
+    child: Row(children: [
+      Icon(icon, color: circleGold, size: 22), const SizedBox(width: 12),
+      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        AnimatedSwitcher(duration: CircleMotion.duration(context, CircleMotion.normal),
+          child: Text(value, key: ValueKey(value),
+            style: const TextStyle(color: circleGoldBright, fontSize: 19,
+              fontWeight: FontWeight.w800))),
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
+      ]),
+    ]),
+  );
+}
+
+/// Animated chat preview that adapts to compact desktop windows.
+class CircleConversationTile extends StatefulWidget {
+  const CircleConversationTile({super.key, required this.api,
+    required this.conversation, required this.active, required this.onTap});
+  final CircleApi api;
+  final Map<String, dynamic> conversation;
+  final bool active;
+  final VoidCallback onTap;
+  @override State<CircleConversationTile> createState() => _CircleConversationTileState();
+}
+class _CircleConversationTileState extends State<CircleConversationTile> {
+  bool hovered = false;
+  @override Widget build(BuildContext context) {
+    final lit = hovered || widget.active;
+    final saved = widget.conversation['saved'] == true;
+    final person = widget.conversation['peer'] is Map
+      ? Map<String, dynamic>.from(widget.conversation['peer'] as Map) : <String, dynamic>{};
+    final title = saved ? 'Избранное' : label(person);
+    return Padding(padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      child: MouseRegion(
+        onEnter: (_) => setState(() => hovered = true),
+        onExit: (_) => setState(() => hovered = false),
+        child: AnimatedContainer(
+          duration: CircleMotion.duration(context, CircleMotion.normal),
+          curve: Curves.easeOutCubic,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(15),
+            gradient: lit ? LinearGradient(colors: [
+              circleGold.withValues(alpha: widget.active ? .16 : .085),
+              circleGold.withValues(alpha: .014),
+            ]) : null,
+            border: Border.all(color: lit
+              ? circleGold.withValues(alpha: widget.active ? .48 : .20)
+              : Colors.transparent),
+            boxShadow: widget.active ? [BoxShadow(
+              color: circleGold.withValues(alpha: .08), blurRadius: 18)] : [],
+          ),
+          child: Material(color: Colors.transparent, child: InkWell(
+            borderRadius: BorderRadius.circular(15),
+            onTap: widget.onTap,
+            child: Padding(padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 13),
+              child: Row(children: [
+                if (saved) const CircleSavedAvatar()
+                else CircleUserAvatar(api: widget.api, user: person, radius: 21),
+                const SizedBox(width: 12),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 13.5,
+                      fontWeight: widget.active ? FontWeight.w700 : FontWeight.w600,
+                      color: widget.active ? circleGoldBright : Theme.of(context).colorScheme.onSurface)),
+                  const SizedBox(height: 6),
+                  Text('${widget.conversation['last_message'] ?? ''}',
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall),
+                ])),
+                const SizedBox(width: 7),
+                AnimatedOpacity(opacity: lit ? 1 : 0, duration: CircleMotion.duration(context, CircleMotion.fast),
+                  child: Icon(Icons.chevron_right_rounded, size: 16,
+                    color: widget.active ? circleGoldBright : circleMuted)),
+              ])),
+          )),
+        ),
+      ),
+    );
+  }
 }
