@@ -115,6 +115,11 @@ void main() {
     await tester.tap(find.text('Подтвердить'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'Несохранённая причина');
+    // enterText updates the controller but does not rebuild setState widgets.
+    await tester.pump();
+    expect(tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Подтвердить решение')).onPressed,
+      isNotNull);
     await tester.tap(find.text('Отмена'));
     await tester.pumpAndSettle();
     expect(api.lastDecision, isNull);
@@ -124,8 +129,13 @@ void main() {
     await tester.pumpAndSettle();
     // A fresh modal must not reuse the already-disposed/old input controller.
     expect(find.text('Несохранённая причина'), findsNothing);
+    final confirm = find.widgetWithText(FilledButton, 'Подтвердить решение');
+    // The re-opened dialog starts empty, so submitting must be disabled.
+    expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
     await tester.enterText(find.byType(TextField), 'Новое основание');
-    await tester.tap(find.text('Подтвердить решение'));
+    await tester.pump();
+    expect(tester.widget<FilledButton>(confirm).onPressed, isNotNull);
+    await tester.tap(confirm);
     await tester.pumpAndSettle();
     expect(api.lastDecision?['note'], 'Новое основание');
     expect(tester.takeException(), isNull);
@@ -144,8 +154,13 @@ void main() {
     expect(find.text('Проверить сообщение'), findsOneWidget);
     await tester.tap(find.text('Подтвердить'));
     await tester.pumpAndSettle();
+    final confirm = find.widgetWithText(FilledButton, 'Подтвердить решение');
+    expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
     await tester.enterText(find.byType(TextField), 'Проверено модератором');
-    await tester.tap(find.text('Подтвердить решение'));
+    // The controller listener schedules a frame; pump before tapping.
+    await tester.pump();
+    expect(tester.widget<FilledButton>(confirm).onPressed, isNotNull);
+    await tester.tap(confirm);
     await tester.pumpAndSettle();
     expect(api.lastDecision?['report_id'], 13);
     expect(api.lastDecision?['status'], 'RESOLVED');
