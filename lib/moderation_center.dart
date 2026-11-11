@@ -33,67 +33,33 @@ class _CircleModerationCenterState extends State<CircleModerationCenter> {
 
   Future<void> _decide(Map<String, dynamic> report, String status) async {
     if (saving) return;
-    final controller = TextEditingController();
-    var warn = false;
+    // The route owns the text controller. showDialog completes on pop while the
+    // exit animation is still running, so disposing a controller here would
+    // leave the exiting TextField referencing a disposed ChangeNotifier.
+    final decision = await showDialog<({String note, String sanction})>(
+      context: context,
+      builder: (_) => _ModerationDecisionDialog(report: report, status: status),
+    );
+    if (!mounted || decision == null) return;
+    setState(() => saving = true);
     try {
-      final decision = await showDialog<({String note, String sanction})>(
-        context: context,
-        builder: (dialog) => StatefulBuilder(builder: (dialog, update) => AlertDialog(
-          title: Text(switch (status) {
-            'REVIEWING' => 'Принять жалобу в работу',
-            'RESOLVED' => 'Подтвердить жалобу',
-            _ => 'Отклонить жалобу',
-          }),
-          content: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 460),
-            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Обращение #${report['id']} · ${report['reporter'] ?? 'Пользователь'}',
-                style: Theme.of(dialog).textTheme.bodySmall),
-              const SizedBox(height: 16),
-              TextField(controller: controller, autofocus: true, maxLength: 500, maxLines: 3,
-                decoration: const InputDecoration(labelText: 'Основание решения',
-                  hintText: 'Что было проверено и почему принято решение?')),
-              if (status == 'RESOLVED') CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                value: warn,
-                onChanged: (value) => update(() => warn = value ?? false),
-                title: const Text('Записать предупреждение'),
-                subtitle: const Text('Решение фиксируется в журнале модерации'),
-              ),
-            ]),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialog), child: const Text('Отмена')),
-            FilledButton(onPressed: () {
-              final note = controller.text.trim();
-              if (status != 'REVIEWING' && note.length < 3) return;
-              Navigator.pop(dialog, (note: note,
-                sanction: status == 'RESOLVED' && warn ? 'WARNING' : 'NONE'));
-            }, child: const Text('Подтвердить решение')),
-          ],
-        )),
-      );
-      if (!mounted || decision == null) return;
-      setState(() => saving = true);
-      try {
-        await widget.api.call('desktop-moderation-decide', body: {
-          'report_id': identifier(report['id']),
-          'status': status,
-          'note': decision.note,
-          'sanction': decision.sanction,
-        });
-        if (!mounted) return;
+      await widget.api.call('desktop-moderation-decide', body: {
+        'report_id': identifier(report['id']),
+        'status': status,
+        'note': decision.note,
+        'sanction': decision.sanction,
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Решение сохранено в журнале Circle')));
+      _refresh();
+    } catch (error) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Решение сохранено в журнале Circle')));
-        _refresh();
-      } catch (error) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('$error')));
-      } finally {
-        if (mounted) setState(() => saving = false);
       }
     } finally {
-      controller.dispose();
+      if (mounted) setState(() => saving = false);
     }
   }
 
@@ -255,6 +221,86 @@ class _CircleModerationCenterState extends State<CircleModerationCenter> {
         ], indicatorColor: circleGoldBright, dividerColor: Theme.of(context).dividerColor)),
       Expanded(child: TabBarView(children: [_inbox(), _archive()])),
     ]));
+}
+
+
+/// Owns dialog input for its entire route lifetime, including the pop animation.
+/// Keeping the controller here also makes cancel/reopen safe during moderation.
+class _ModerationDecisionDialog extends StatefulWidget {
+  const _ModerationDecisionDialog({required this.report, required this.status});
+  final Map<String, dynamic> report;
+  final String status;
+
+  @override
+  State<_ModerationDecisionDialog> createState() => _ModerationDecisionDialogState();
+}
+
+class _ModerationDecisionDialogState extends State<_ModerationDecisionDialog> {
+  final TextEditingController _note = TextEditingController();
+  bool _warn = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _note.addListener(_refreshValidation);
+  }
+
+  void _refreshValidation() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _note.removeListener(_refreshValidation);
+    _note.dispose();
+    super.dispose();
+  }
+
+  void _confirm() {
+    final note = _note.text.trim();
+    if (widget.status != 'REVIEWING' && note.length < 3) return;
+    Navigator.of(context).pop((
+      note: note,
+      sanction: widget.status == 'RESOLVED' && _warn ? 'WARNING' : 'NONE',
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canConfirm = widget.status == 'REVIEWING' || _note.text.trim().length >= 3;
+    return AlertDialog(
+      title: Text(switch (widget.status) {
+        'REVIEWING' => 'Принять жалобу в работу',
+        'RESOLVED' => 'Подтвердить жалобу',
+        _ => 'Отклонить жалобу',
+      }),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: Column(mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Обращение #${widget.report['id']} · ${widget.report['reporter'] ?? 'Пользователь'}',
+            style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 16),
+          TextField(controller: _note, autofocus: true, maxLength: 500, maxLines: 3,
+            decoration: const InputDecoration(labelText: 'Основание решения',
+              hintText: 'Что было проверено и почему принято решение?')),
+          if (widget.status == 'RESOLVED') CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _warn,
+            onChanged: (value) => setState(() => _warn = value ?? false),
+            title: const Text('Записать предупреждение'),
+            subtitle: const Text('Решение фиксируется в журнале модерации'),
+          ),
+        ]),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Отмена')),
+        FilledButton(onPressed: canConfirm ? _confirm : null,
+          child: const Text('Подтвердить решение')),
+      ],
+    );
+  }
 }
 
 class _ModerationTag extends StatelessWidget {

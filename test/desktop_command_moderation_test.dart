@@ -104,6 +104,34 @@ void main() {
     await tester.binding.setSurfaceSize(null);
   });
 
+  testWidgets('Moderation dialog can be cancelled and reopened without leaking input state',
+      (tester) async {
+    final api = _ModerationFixtureApi();
+    addTearDown(api.dispose);
+    await tester.binding.setSurfaceSize(const Size(900, 780));
+    await tester.pumpWidget(MaterialApp(theme: circleTheme(), home: Scaffold(
+      body: CircleModerationCenter(api))));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Подтвердить'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Несохранённая причина');
+    await tester.tap(find.text('Отмена'));
+    await tester.pumpAndSettle();
+    expect(api.lastDecision, isNull);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.text('Подтвердить'));
+    await tester.pumpAndSettle();
+    // A fresh modal must not reuse the already-disposed/old input controller.
+    expect(find.text('Несохранённая причина'), findsNothing);
+    await tester.enterText(find.byType(TextField), 'Новое основание');
+    await tester.tap(find.text('Подтвердить решение'));
+    await tester.pumpAndSettle();
+    expect(api.lastDecision?['note'], 'Новое основание');
+    expect(tester.takeException(), isNull);
+    await tester.binding.setSurfaceSize(null);
+  });
+
   testWidgets('Moderation inbox makes explicit decision and preserves archive tab',
       (tester) async {
     final api = _ModerationFixtureApi();
