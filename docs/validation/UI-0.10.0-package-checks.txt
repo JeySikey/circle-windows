@@ -1,0 +1,39 @@
+Локальные/офлайн проверки. test_bootstrap_keys использует mock GitHub: реальные Secrets не создавались и не менялись.
+
+CHECK: tool/validate_package.py
+Updater launcher diagnostics and unified Windows path: PASS
+Updater handshake, rollback, and CI coverage: PASS
+Installer regression and workflow script dependencies: PASS
+Source package structure and version: OK (0.10.0); ZIP not present, skipped integrity check
+CHECK: tool/check_api_contract.py
+PASS: desktop feature routes exist and guard author/member access
+CHECK: tool/check_desktop_contract.py
+PASS:  54 desktop routes and static permission checks
+CHECK: tool/test_desktop_parity.py
+PASS: 16 desktop feature/UI/security regression guards
+CHECK: tool/test_moderation_contract.py
+PASS: reports/DM moderation guards + native navigation route checks
+CHECK: tool/test_release_decision.py
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 0.000s
+
+OK
+CHECK: tool/self_test_update.py
+PASS: runtime ZIP CRC, payload layout, Ed25519 signature, tamper rejection, SHA-256
+CHECK: tool/test_bootstrap_keys.py
+...
+----------------------------------------------------------------------
+Ran 3 tests in 0.002s
+
+OK
+GitHub Actions signing secret created. No private key was printed.
+PUBLIC_KEY_BASE64=t1Ueu/aidUd9SXMPDraagG2vMxwh6bZla760I5mXSOI=
+Signing key already exists in repository secrets. Rotation blocked; no changes made.
+
+FINAL YAML parse: PASS
+FINAL source validation after file inventory update:
+Updater launcher diagnostics and unified Windows path: PASS
+Updater handshake, rollback, and CI coverage: PASS
+Installer regression and workflow script dependencies: PASS
+Source package structure and version: OK (0.10.0); ZIP not present, skipped integrity check

@@ -26,9 +26,9 @@ if (-not (Test-Path $exe)) { throw "Missing $exe" }
 if ($LASTEXITCODE -ne 0) { throw 'Windows runtime staging failed' }
 $compiler = @( "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "${env:ProgramFiles}\Inno Setup 6\ISCC.exe" ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $compiler) { throw 'Install Inno Setup 6' }
-& $compiler '/DAppVersion=0.9.0' installer\Circle.iss
+& $compiler '/DAppVersion=0.10.0' installer\Circle.iss
 if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
-Write-Host 'Done: dist\Circle_Windows_0.9.0_Setup.exe'
+Write-Host 'Done: dist\Circle_Windows_0.10.0_Setup.exe'
 if (-not ($Repository -and $PublicKey)) {
   Write-Warning 'Unsigned/unconfigured channel: set CIRCLE_GITHUB_REPO and CIRCLE_UPDATE_PUBLIC_KEY, or build via GitHub Actions with signing secret.'
 }

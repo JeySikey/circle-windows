@@ -1,0 +1,58 @@
+00:00 +0: loading /workspace/work/windows-ui/circle-windows/test/desktop_command_moderation_test.dart
+00:00 +0: /workspace/work/windows-ui/circle-windows/test/desktop_command_moderation_test.dart: Command palette filters locally and opens selected screen
+00:01 +1: /workspace/work/windows-ui/circle-windows/test/desktop_command_moderation_test.dart: Platform console requires confirmation before disabling a module
+00:01 +2: /workspace/work/windows-ui/circle-windows/test/desktop_command_moderation_test.dart: Moderation dialog can be cancelled and reopened without leaking input state
+00:02 +3: /workspace/work/windows-ui/circle-windows/test/desktop_command_moderation_test.dart: Moderation inbox makes explicit decision and preserves archive tab
+00:02 +4: loading /workspace/work/windows-ui/circle-windows/test/design_keyboard_test.dart
+00:02 +4: /workspace/work/windows-ui/circle-windows/test/design_keyboard_test.dart: Keyboard navigation has visible focus in dark theme
+00:03 +5: /workspace/work/windows-ui/circle-windows/test/design_keyboard_test.dart: Keyboard navigation has visible focus in light theme
+00:03 +6: /workspace/work/windows-ui/circle-windows/test/design_keyboard_test.dart: Compact navigation preserves its selected accessible name while resizing
+00:03 +7: loading /workspace/work/windows-ui/circle-windows/test/desktop_workspace_test.dart
+00:04 +7: /workspace/work/windows-ui/circle-windows/test/desktop_workspace_test.dart: Secondary routes keep the sidebar and main screen state
+00:05 +8: /workspace/work/windows-ui/circle-windows/test/desktop_workspace_test.dart: Main content updates while a secondary route is open
+00:06 +9: /workspace/work/windows-ui/circle-windows/test/desktop_workspace_test.dart: Header adapts its actions to content width and text scaling
+00:06 +10: /workspace/work/windows-ui/circle-windows/test/desktop_workspace_test.dart: Going home respects a guarded route until it permits leaving
+00:06 +11: /workspace/work/windows-ui/circle-windows/test/desktop_workspace_test.dart: Unnamed descendants keep the selected section
+00:06 +12: loading /workspace/work/windows-ui/circle-windows/test/update_manifest_test.dart
+00:07 +12: /workspace/work/windows-ui/circle-windows/test/update_manifest_test.dart: Derives GitHub release URL only from safe owner/repo
+00:07 +13: /workspace/work/windows-ui/circle-windows/test/update_manifest_test.dart: HTTP 404 means release was not published, not that app is current
+00:07 +14: /workspace/work/windows-ui/circle-windows/test/update_manifest_test.dart: Authenticates release manifest and rejects modified payload
+00:07 +15: loading /workspace/work/windows-ui/circle-windows/test/post_management_test.dart
+00:08 +15: /workspace/work/windows-ui/circle-windows/test/post_management_test.dart: Own post shows edit controls and a repost action
+00:10 +16: /workspace/work/windows-ui/circle-windows/test/post_management_test.dart: Other members cannot see local edit controls
+00:10 +17: loading /workspace/work/windows-ui/circle-windows/test/widget_test.dart
+00:10 +17: /workspace/work/windows-ui/circle-windows/test/widget_test.dart: Material theme basic smoke
+00:10 +18: loading /workspace/work/windows-ui/circle-windows/test/startup_log_test.dart
+00:11 +18: /workspace/work/windows-ui/circle-windows/test/startup_log_test.dart: Logging does not throw even without Windows LOCALAPPDATA
+00:11 +19: loading /workspace/work/windows-ui/circle-windows/test/design_test.dart
+00:11 +19: /workspace/work/windows-ui/circle-windows/test/design_test.dart: Circle 5.2.3 palette remains consistent
+00:11 +20: /workspace/work/windows-ui/circle-windows/test/design_test.dart: Native theme has branded surface and buttons
+00:12 +21: /workspace/work/windows-ui/circle-windows/test/design_test.dart: Custom user avatar has a distinct class from Flutter Material
+00:12 +22: /workspace/work/windows-ui/circle-windows/test/design_test.dart: Russian display date is predictable
+00:12 +23: loading /workspace/work/windows-ui/circle-windows/test/messenger_layout_test.dart
+00:12 +23: /workspace/work/windows-ui/circle-windows/test/messenger_layout_test.dart: Selected chat and draft survive resizing inside a wider window
+00:14 +24: /workspace/work/windows-ui/circle-windows/test/messenger_layout_test.dart: Switching peers isolates drafts and ignores an old polling result
+00:14 +25: /workspace/work/windows-ui/circle-windows/test/messenger_layout_test.dart: Narrow chat with large text keeps composer and call actions usable
+00:14 +26: /workspace/work/windows-ui/circle-windows/test/messenger_layout_test.dart: Leaving a chat while a call starts cancels its server invitation
+00:14 +27: loading /workspace/work/windows-ui/circle-windows/test/updater_test.dart
+00:14 +27: /workspace/work/windows-ui/circle-windows/test/updater_test.dart: sha256 file digest uses streaming hashing
+00:14 +28: /workspace/work/windows-ui/circle-windows/test/updater_test.dart: updater and PowerShell use the exact LOCALAPPDATA folder
+00:14 +29: /workspace/work/windows-ui/circle-windows/test/updater_test.dart: version ordering
+00:14 +30: loading /workspace/work/windows-ui/circle-windows/test/design_motion_test.dart
+00:15 +30: /workspace/work/windows-ui/circle-windows/test/design_motion_test.dart: Branded CTA responds to click and keeps label readable
+00:15 +31: /workspace/work/windows-ui/circle-windows/test/design_motion_test.dart: Nav item animates active state without overflow
+00:15 +32: /workspace/work/windows-ui/circle-windows/test/design_motion_test.dart: Saved conversation renders without a network image
+00:15 +33: /workspace/work/windows-ui/circle-windows/test/design_motion_test.dart: Search screen is native and adapts its filter fields
+00:16 +34: /workspace/work/windows-ui/circle-windows/test/design_motion_test.dart: Presence labels are explicit and use the expected palette
+00:16 +35: loading /workspace/work/windows-ui/circle-windows/test/desktop_shell_test.dart
+00:16 +35: /workspace/work/windows-ui/circle-windows/test/desktop_shell_test.dart: (setUpAll)
+00:16 +35: /workspace/work/windows-ui/circle-windows/test/desktop_shell_test.dart: Real desktop shell keeps navigation across sections and shortcuts
+00:17 +36: /workspace/work/windows-ui/circle-windows/test/desktop_shell_test.dart: Real shell and active chat fit small windows and larger text
+00:18 +37: /workspace/work/windows-ui/circle-windows/test/desktop_shell_test.dart: (tearDownAll)
+00:18 +37: loading /workspace/work/windows-ui/circle-windows/test/desktop_features_test.dart
+00:19 +37: /workspace/work/windows-ui/circle-windows/test/desktop_features_test.dart: Circle community creation stays native at desktop and compact widths
+00:19 +38: /workspace/work/windows-ui/circle-windows/test/desktop_features_test.dart: Responsive heading wraps actions below text on narrow window
+00:19 +39: loading /workspace/work/windows-ui/circle-windows/test/api_test.dart
+00:19 +39: /workspace/work/windows-ui/circle-windows/test/api_test.dart: Requires HTTPS root without embedded credentials
+00:19 +40: /workspace/work/windows-ui/circle-windows/test/api_test.dart: Safe parsing of API records
+00:20 +41: All tests passed!

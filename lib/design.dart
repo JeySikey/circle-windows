@@ -113,10 +113,10 @@ class CircleLogo extends StatelessWidget {
   final double size;
   @override Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
     Container(width: size, height: size, decoration: BoxDecoration(borderRadius: BorderRadius.circular(size * .25), border: Border.all(color: circleGold.withValues(alpha: .47)), color: circleGold.withValues(alpha: .09), boxShadow: [BoxShadow(color: circleGold.withValues(alpha: .12), blurRadius: 18, spreadRadius: 1)]), child: Padding(padding: EdgeInsets.all(size * .16), child: Image.asset('assets/circle-mark.png'))),
-    if (!compact) ...[const SizedBox(width: 11), Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-      Text('Circle', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: size * .53, fontWeight: FontWeight.w800, letterSpacing: -.5, height: 1)),
-      const SizedBox(height: 5), const Text('ТВОЙ КРУГ. ТВОИ ЛЮДИ.', style: TextStyle(fontSize: 8.5, letterSpacing: 1.4, color: circleGold, fontWeight: FontWeight.w700)),
-    ])],
+    if (!compact) ...[const SizedBox(width: 11), Flexible(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+      Text('Circle', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: size * .53, fontWeight: FontWeight.w800, letterSpacing: -.5, height: 1)),
+      const SizedBox(height: 5), const Text('ТВОЙ КРУГ. ТВОИ ЛЮДИ.', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 8.5, letterSpacing: 1.4, color: circleGold, fontWeight: FontWeight.w700)),
+    ]))],
   ]);
 }
 
@@ -354,10 +354,16 @@ class CircleNavItem extends StatefulWidget {
 }
 class _CircleNavItemState extends State<CircleNavItem> {
   bool hovered = false;
+  bool focused = false;
   @override Widget build(BuildContext context) {
-    final lit = widget.active || hovered;
-    return Padding(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-      child: Tooltip(message: widget.title, waitDuration: const Duration(milliseconds: 700),
+    final lit = widget.active || hovered || focused;
+    final focusColor = Theme.of(context).colorScheme.primary;
+    return Semantics(button: true, selected: widget.active, label: widget.title,
+      child: LayoutBuilder(builder: (context, constraints) {
+      final compact = widget.compact || constraints.maxWidth < 180;
+      return Padding(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      child: Tooltip(message: widget.title, excludeFromSemantics: true,
+        waitDuration: const Duration(milliseconds: 700),
         child: MouseRegion(
           onEnter: (_) => setState(() => hovered = true),
           onExit: (_) => setState(() => hovered = false),
@@ -370,22 +376,24 @@ class _CircleNavItemState extends State<CircleNavItem> {
                 circleGold.withValues(alpha: .015),
               ]) : null,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: lit ? circleGold.withValues(alpha: widget.active ? .58 : .28) : Colors.transparent),
+              border: Border.all(color: focused ? focusColor : lit ? circleGold.withValues(alpha: widget.active ? .58 : .28) : Colors.transparent,
+                width: focused ? 2 : 1),
               boxShadow: widget.active ? [BoxShadow(color: circleGold.withValues(alpha: .13), blurRadius: 20, spreadRadius: -5)] : [],
             ),
             child: Material(color: Colors.transparent, child: InkWell(
               borderRadius: BorderRadius.circular(14), onTap: widget.onTap,
-              child: SizedBox(height: 48, child: Row(children: [
+              onFocusChange: (value) => setState(() => focused = value),
+              child: ExcludeSemantics(child: SizedBox(height: 48, child: Row(children: [
                 AnimatedContainer(duration: CircleMotion.duration(context, CircleMotion.fast),
-                  width: 3, height: widget.active ? 25 : hovered ? 16 : 0,
+                  width: 3, height: widget.active ? 25 : hovered || focused ? 16 : 0,
                   decoration: BoxDecoration(color: circleGoldBright,
                     borderRadius: BorderRadius.circular(3),
                     boxShadow: lit ? [BoxShadow(color: circleGold.withValues(alpha: .35), blurRadius: 9)] : [])),
-                Expanded(child: Row(mainAxisAlignment: widget.compact ? MainAxisAlignment.center : MainAxisAlignment.start, children: [
+                Expanded(child: Row(mainAxisAlignment: compact ? MainAxisAlignment.center : MainAxisAlignment.start, children: [
                   AnimatedScale(scale: hovered ? 1.10 : 1, duration: CircleMotion.duration(context, CircleMotion.fast),
                     child: Icon(widget.icon, size: 21,
                       color: lit ? circleGoldBright : Theme.of(context).textTheme.bodySmall?.color)),
-                  if (!widget.compact) ...[
+                  if (!compact) ...[
                     const SizedBox(width: 14), Expanded(child: Text(widget.title,
                       maxLines: 1, overflow: TextOverflow.ellipsis,
                       style: TextStyle(fontSize: 13.5, fontWeight: widget.active ? FontWeight.w700 : FontWeight.w500,
@@ -394,11 +402,12 @@ class _CircleNavItemState extends State<CircleNavItem> {
                     const SizedBox(width: 10),
                   ],
                 ])),
-              ])),
+              ]))),
             )),
           ),
         ),
       ));
+    }));
   }
 }
 
@@ -472,30 +481,37 @@ class CircleIconAction extends StatefulWidget {
 }
 class _CircleIconActionState extends State<CircleIconAction> {
   bool hovered = false;
+  bool focused = false;
   @override Widget build(BuildContext context) {
-    final glow = widget.active || hovered;
-    return Tooltip(message: widget.tooltip, child: MouseRegion(
-      onEnter: (_) => setState(() => hovered = true),
-      onExit: (_) => setState(() => hovered = false),
+    final enabled = widget.onPressed != null;
+    final glow = enabled && (widget.active || hovered || focused);
+    final focusColor = Theme.of(context).colorScheme.primary;
+    return Semantics(button: true, enabled: enabled, label: widget.tooltip,
+      child: Tooltip(message: widget.tooltip, excludeFromSemantics: true, child: MouseRegion(
+      onEnter: enabled ? (_) => setState(() => hovered = true) : null,
+      onExit: enabled ? (_) => setState(() => hovered = false) : null,
       child: AnimatedContainer(
         duration: CircleMotion.duration(context, CircleMotion.fast),
         width: 40, height: 40,
         decoration: BoxDecoration(
           color: circleGold.withValues(alpha: glow ? .12 : .025),
-          border: Border.all(color: circleGold.withValues(alpha: glow ? .47 : .08)),
+          border: Border.all(color: focused && enabled ? focusColor : circleGold.withValues(alpha: glow ? .47 : .08),
+            width: focused && enabled ? 2 : 1),
           borderRadius: BorderRadius.circular(12),
           boxShadow: glow ? [BoxShadow(color: circleGold.withValues(alpha: .13), blurRadius: 18)] : [],
         ),
         child: Material(color: Colors.transparent, child: InkWell(
           onTap: widget.onPressed,
+          canRequestFocus: enabled,
+          onFocusChange: (value) => setState(() => focused = value),
           borderRadius: BorderRadius.circular(12),
           child: Center(child: AnimatedScale(
-            scale: hovered ? 1.13 : 1, duration: CircleMotion.duration(context, CircleMotion.fast),
+            scale: enabled && hovered ? 1.13 : 1, duration: CircleMotion.duration(context, CircleMotion.fast),
             child: Icon(widget.icon, size: 20,
-              color: glow ? circleGoldBright : Theme.of(context).textTheme.bodySmall?.color))),
+              color: !enabled ? Theme.of(context).disabledColor : glow ? circleGoldBright : Theme.of(context).textTheme.bodySmall?.color))),
         )),
       ),
-    ));
+    )));
   }
 }
 

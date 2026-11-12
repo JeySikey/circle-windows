@@ -21,12 +21,13 @@ import 'desktop_discovery.dart';
 import 'moderation_center.dart';
 import 'command_palette.dart';
 import 'platform_console.dart';
+import 'desktop_workspace.dart';
 
 const secure = FlutterSecureStorage();
 const updateManifest = String.fromEnvironment('CIRCLE_UPDATE_URL');
 const updateRepository = String.fromEnvironment('CIRCLE_GITHUB_REPO');
 const updatePublicKey = String.fromEnvironment('CIRCLE_UPDATE_PUBLIC_KEY');
-const appVersion = '0.9.0';
+const appVersion = '0.10.0';
 
 Uri? get circleUpdateUri => updateManifest.trim().isNotEmpty
     ? Uri.tryParse(updateManifest.trim())
@@ -108,6 +109,8 @@ class _CircleRootState extends State<CircleRoot> {
   bool presenceBusy = false;
   int page = 0;
   final Set<int> visited = {0};
+  final workspace = GlobalKey<CircleWorkspaceState>();
+  String? workspaceTitle;
   String error = '';
   @override void initState() {
     super.initState();
@@ -223,12 +226,23 @@ class _CircleRootState extends State<CircleRoot> {
     incomingTimer?.cancel(); incomingTimer = null;
     presenceTimer?.cancel(); presenceTimer = null;
     api?.dispose();
-    if (mounted) setState(() {api = null; me = {}; page = 0; visited..clear()..add(0);});
+    if (mounted) setState(() {api = null; me = {}; page = 0; workspaceTitle = null; visited..clear()..add(0);});
   }
   void openSecondary(String title, Widget child) {
-    Navigator.push(context, MaterialPageRoute<void>(builder: (_) => CirclePage(title: title, child: child)));
+    final screen = CirclePage(title: title, child: child);
+    final current = workspace.currentState;
+    if (current != null) {
+      unawaited(current.open(title, screen));
+    } else {
+      // Startup updates can also be opened before a user has signed in.
+      unawaited(Navigator.push<void>(context,
+        MaterialPageRoute<void>(builder: (_) => screen)));
+    }
   }
-  void _switchMain(int index) {
+  Future<void> _switchMain(int index) async {
+    if (!mounted || api == null) return;
+    final current = workspace.currentState;
+    if (current != null && !await current.showHome()) return;
     if (!mounted || api == null) return;
     setState(() { page = index; visited.add(index); });
   }
@@ -370,6 +384,8 @@ class _CircleRootState extends State<CircleRoot> {
       if (visited.contains(3)) FriendsScreen(client) else const SizedBox.shrink(),
     ];
     final names = ['Главная', 'Профиль', 'Мессенджер', 'Друзья'];
+    final subtitles = ['Новости твоего круга', 'Твоя страница и публикации',
+      'Личные разговоры и Избранное', 'Люди, с которыми ты на связи'];
     final icons = [Icons.home_rounded, Icons.account_circle_outlined, Icons.forum_outlined, Icons.people_outline_rounded];
     return CallbackShortcuts(bindings: <ShortcutActivator, VoidCallback>{
       const SingleActivator(LogicalKeyboardKey.keyK, control: true): _openPalette,
@@ -377,18 +393,24 @@ class _CircleRootState extends State<CircleRoot> {
       const SingleActivator(LogicalKeyboardKey.digit2, control: true): () => _switchMain(1),
       const SingleActivator(LogicalKeyboardKey.digit3, control: true): () => _switchMain(2),
       const SingleActivator(LogicalKeyboardKey.digit4, control: true): () => _switchMain(3),
+      const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true): () {
+        unawaited(workspace.currentState?.back());
+      },
     }, child: Focus(autofocus: true, child: Scaffold(body: Row(children: [
-      AnimatedContainer(duration: const Duration(milliseconds: 180), width: width,
+      AnimatedContainer(duration: CircleMotion.duration(context, CircleMotion.normal), width: width,
         decoration: BoxDecoration(
           gradient: widget.light ? null : const LinearGradient(begin: Alignment.topCenter,
             end: Alignment.bottomCenter, colors: [Color(0xFF151619), Color(0xFF111215)]),
           color: widget.light ? const Color(0xFFEAE5DC) : null,
           border: Border(right: BorderSide(color: Theme.of(context).dividerColor))),
-        child: SafeArea(child: ListView(children: [
-          Padding(padding: EdgeInsets.fromLTRB(mini ? 16 : 19, 24, 8, 34), child: CircleLogo(compact: mini, size: 43)),
+        child: ClipRect(child: OverflowBox(alignment: Alignment.topLeft,
+          minWidth: width, maxWidth: width,
+          child: SafeArea(child: Column(children: [
+          Padding(padding: EdgeInsets.fromLTRB(mini ? 16 : 19, 22, 8, 22), child: CircleLogo(compact: mini, size: 43)),
+          Expanded(child: ListView(key: const PageStorageKey('workspace-navigation'), children: [
           for (var i = 0; i < names.length; i++) CircleNavItem(
             key: ValueKey('main-nav-$i'), icon: icons[i], title: names[i],
-            active: page == i, compact: mini,
+            active: workspaceTitle == null && page == i, compact: mini,
             onTap: () => _switchMain(i),
           ),
           const SizedBox(height: 18),
@@ -397,8 +419,7 @@ class _CircleRootState extends State<CircleRoot> {
           _secondaryNav(mini, Icons.manage_search_rounded, 'Поиск сообщений',
             () => openSecondary('Поиск сообщений', CircleMessageSearchScreen(
               api: client,
-              onOpenChannel: (id, name) => Navigator.push(context,
-                MaterialPageRoute<void>(builder: (_) => ChannelScreen(client, id, name))),
+              onOpenChannel: (id, name) => openSecondary(name, ChannelScreen(client, id, name)),
               onOpenConversation: (id) => openSecondary('Переписка',
                 MessagesScreen(client, id, peer: const {'display_name':'Переписка'}, me: me)),
             ))),
@@ -421,53 +442,28 @@ class _CircleRootState extends State<CircleRoot> {
           if (['OWNER', 'ADMIN'].contains('${me['platform_role'] ?? ''}'.toUpperCase()))
             _secondaryNav(mini, Icons.policy_outlined, 'Trust & Safety', () => openSecondary('Trust & Safety', DesktopTrustScreen(client))),
           _secondaryNav(mini, Icons.settings_outlined, 'Обновления', () => openSecondary('Обновления', const UpdatesScreen())),
+          const SizedBox(height: 12),
+          ])),
           if (!mini) Padding(padding: const EdgeInsets.fromLTRB(21, 8, 10, 3), child: Text('CIRCLE WINDOWS · $appVersion',
             style: const TextStyle(color: circleMuted, fontSize: 9, letterSpacing: 1.5))),
           const SizedBox(height: 10),
-          Padding(padding: const EdgeInsets.all(12), child: InkWell(onTap: () => setState(() {page = 1; visited.add(1);}), borderRadius: BorderRadius.circular(13),
-            child: Container(padding: const EdgeInsets.all(9), decoration: BoxDecoration(borderRadius: BorderRadius.circular(13), color: circleGold.withValues(alpha: .07)),
-              child: Row(children: [CircleUserAvatar(api: client, user: me, radius: 19), if (!mini) ...[const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label(me), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)), Text('@${me['username'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, color: circleMuted))]))]])))),
-        ]))),
-      Expanded(child: CircleAmbientBackground(
+          Padding(padding: EdgeInsets.all(mini ? 8 : 12), child: Tooltip(message: 'Мой профиль', child: InkWell(onTap: () => _switchMain(1), borderRadius: BorderRadius.circular(13),
+            child: Container(padding: EdgeInsets.all(mini ? 6 : 9), decoration: BoxDecoration(borderRadius: BorderRadius.circular(13), color: circleGold.withValues(alpha: .07)),
+              child: Row(mainAxisAlignment: mini ? MainAxisAlignment.center : MainAxisAlignment.start, children: [CircleUserAvatar(api: client, user: me, radius: 19), if (!mini) ...[const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label(me), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)), Text('@${me['username'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, color: circleMuted))]))]]))))),
+        ]))))),
+      Expanded(child: CircleWorkspace(key: workspace,
+        onRouteChanged: (title) {
+          if (mounted && workspaceTitle != title) setState(() => workspaceTitle = title);
+        },
+        home: CircleAmbientBackground(
         child: Column(children: [
-        Container(height: 72, decoration: BoxDecoration(
-          gradient: widget.light ? null : const LinearGradient(
-            colors: [Color(0xFF202027), Color(0xFF191B1F), Color(0xFF17191C)]),
-          color: widget.light ? Theme.of(context).cardTheme.color : null,
-          border: Border(bottom: BorderSide(color: circleGold.withValues(alpha: .17)))),
-          padding: const EdgeInsets.symmetric(horizontal: 23), child: Row(children: [
-            IconButton(tooltip: mini && small ? 'Навигация свёрнута' : 'Свернуть боковую панель', onPressed: small ? null : () => setState(() => collapsed = !collapsed), icon: Icon(mini ? Icons.menu_open : Icons.menu)),
-            const SizedBox(width: 12), Expanded(child: Text(names[page], style: Theme.of(context).textTheme.titleLarge)),
-            CircleIconAction(tooltip: 'Быстрый переход · Ctrl+K',
-              onPressed: _openPalette, icon: Icons.search_rounded),
-            PopupMenuButton<String>(tooltip: 'Статус присутствия',
-              onSelected: setPresence,
-              itemBuilder: (_) => ['ONLINE', 'IDLE', 'DND'].map((status) => PopupMenuItem<String>(value: status,
-                child: Row(children: [CirclePresenceIndicator(status: status),
-                  const SizedBox(width: 12), Text(circlePresenceLabels[status]!),
-                  if (presence == status) ...[const Spacer(), const Icon(Icons.check, size: 16, color: circleGold)]]))).toList(),
-              child: Padding(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                child: CirclePresenceIndicator(status: presence, showText: !mini))),
-            if (!small) ...[
-              CircleIconAction(tooltip: 'Сообщества', onPressed: () => openSecondary('Сообщества', CommunitiesScreen(client)), icon: Icons.groups_outlined),
-              CircleIconAction(tooltip: 'Звонки', onPressed: () => openSecondary('Звонки', CallsScreen(client)), icon: Icons.call_outlined),
-            ] else PopupMenuButton<String>(
-              tooltip: 'Другие разделы', icon: const Icon(Icons.apps_rounded),
-              onSelected: (value) {
-                if (value == 'communities') openSecondary('Сообщества', CommunitiesScreen(client));
-                if (value == 'calls') openSecondary('Звонки', CallsScreen(client));
-              },
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'communities', child: Text('Сообщества')),
-                PopupMenuItem(value: 'calls', child: Text('Звонки')),
-              ],
-            ),
-            CircleIconAction(tooltip: 'Уведомления', onPressed: () => openSecondary('Уведомления', NotificationsScreen(client)), icon: Icons.notifications_none),
-            CircleIconAction(tooltip: 'Переключить тему', onPressed: widget.onTheme, icon: widget.light ? Icons.dark_mode_outlined : Icons.light_mode_outlined),
-            PopupMenuButton<String>(tooltip: 'Аккаунт', onSelected: (choice) {if (choice == 'logout') logout(); if (choice == 'updates') openSecondary('Обновления', const UpdatesScreen());},
-              itemBuilder: (_) => const [PopupMenuItem(value: 'updates', child: Text('Обновления Circle')), PopupMenuItem(value: 'logout', child: Text('Выйти из аккаунта'))],
-              child: Padding(padding: const EdgeInsets.only(left: 9), child: CircleUserAvatar(api: client, user: me, radius: 17))),
-          ])),
+        CircleWorkspaceHeader(title: names[page], subtitle: subtitles[page],
+          leading: IconButton(
+            tooltip: small ? 'Компактная навигация для узкого окна'
+              : mini ? 'Развернуть меню' : 'Свернуть меню',
+            onPressed: small ? null : () => setState(() => collapsed = !collapsed),
+            icon: Icon(mini ? Icons.menu_open_rounded : Icons.menu_rounded)),
+          actionsBuilder: (context, compact) => _headerActions(client, compact)),
         Expanded(child: IndexedStack(index: page, children: [
           for (var i = 0; i < screens.length; i++) TickerMode(
             enabled: i == page,
@@ -482,11 +478,71 @@ class _CircleRootState extends State<CircleRoot> {
                 child: screens[i],
               ),
             )))])),
-      ]))),
+      ])))),
     ]))));
   }
-  Widget _secondaryNav(bool mini, IconData icon, String title, VoidCallback tap) =>
-    CircleNavItem(icon: icon, title: title, compact: mini, onTap: tap);
+
+  List<Widget> _headerActions(CircleApi client, bool compact) => [
+    CircleIconAction(tooltip: 'Быстрый переход · Ctrl+K',
+      onPressed: _openPalette, icon: Icons.search_rounded),
+    PopupMenuButton<String>(tooltip: 'Статус присутствия',
+      onSelected: setPresence,
+      itemBuilder: (_) => ['ONLINE', 'IDLE', 'DND'].map((status) =>
+        PopupMenuItem<String>(value: status, child: Row(children: [
+          CirclePresenceIndicator(status: status), const SizedBox(width: 12),
+          Expanded(child: Text(circlePresenceLabels[status]!)),
+          if (presence == status) const Icon(Icons.check, size: 16, color: circleGold),
+        ]))).toList(),
+      child: Padding(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+        child: Semantics(button: true, label: 'Статус: ${circlePresenceLabels[presence]}',
+          child: CirclePresenceIndicator(status: presence, showText: !compact)))),
+    if (!compact) ...[
+      CircleIconAction(tooltip: 'Сообщества', icon: Icons.groups_outlined,
+        onPressed: () => openSecondary('Сообщества', CommunitiesScreen(client))),
+      CircleIconAction(tooltip: 'Звонки', icon: Icons.call_outlined,
+        onPressed: () => openSecondary('Звонки', CallsScreen(client))),
+    ],
+    CircleIconAction(tooltip: 'Уведомления', icon: Icons.notifications_none,
+      onPressed: () => openSecondary('Уведомления', NotificationsScreen(client))),
+    if (!compact) CircleIconAction(tooltip: 'Переключить тему',
+      onPressed: widget.onTheme,
+      icon: widget.light ? Icons.dark_mode_outlined : Icons.light_mode_outlined),
+    if (compact) PopupMenuButton<String>(tooltip: 'Другие действия',
+      icon: const Icon(Icons.more_horiz_rounded),
+      onSelected: (value) {
+        if (value == 'communities') openSecondary('Сообщества', CommunitiesScreen(client));
+        if (value == 'calls') openSecondary('Звонки', CallsScreen(client));
+        if (value == 'theme') widget.onTheme();
+      },
+      itemBuilder: (_) => [
+        const PopupMenuItem(value: 'communities', child: Text('Сообщества')),
+        const PopupMenuItem(value: 'calls', child: Text('Звонки')),
+        PopupMenuItem(value: 'theme', child: Text(widget.light ? 'Тёмная тема' : 'Светлая тема')),
+      ]),
+    PopupMenuButton<String>(tooltip: 'Аккаунт',
+      onSelected: (choice) {
+        if (choice == 'logout') logout();
+        if (choice == 'updates') openSecondary('Обновления', const UpdatesScreen());
+        if (choice == 'profile') _switchMain(1);
+      },
+      itemBuilder: (_) => const [
+        PopupMenuItem(value: 'profile', child: Text('Мой профиль')),
+        PopupMenuItem(value: 'updates', child: Text('Обновления Circle')),
+        PopupMenuDivider(),
+        PopupMenuItem(value: 'logout', child: Text('Выйти из аккаунта')),
+      ],
+      child: Padding(padding: const EdgeInsets.only(left: 9),
+        child: CircleUserAvatar(api: client, user: me, radius: 17))),
+  ];
+
+  Widget _secondaryNav(bool mini, IconData icon, String title, VoidCallback tap) {
+    final active = workspaceTitle == title ||
+        (title == 'Жалобы и архив' && workspaceTitle == 'Модерация') ||
+        (title == 'Системы платформы' && workspaceTitle == 'Системы Circle') ||
+        (title == 'Кто в сети' && workspaceTitle == 'Люди в сети');
+    return CircleNavItem(icon: icon, title: title, compact: mini,
+      active: active, onTap: active ? () {} : tap);
+  }
 }
 
 class CirclePage extends StatelessWidget {
@@ -499,7 +555,8 @@ class CirclePage extends StatelessWidget {
         decoration: BoxDecoration(color: circleGoldBright,
           borderRadius: BorderRadius.circular(4),
           boxShadow: [BoxShadow(color: circleGold.withValues(alpha: .32), blurRadius: 12)])),
-        const SizedBox(width: 13), Text(title)]),
+        const SizedBox(width: 13), Expanded(child: Text(title,
+          maxLines: 1, overflow: TextOverflow.ellipsis))]),
       leading: IconButton(tooltip: 'Назад',
         icon: const Icon(Icons.arrow_back_rounded), onPressed: () => Navigator.pop(context))),
     body: CircleAmbientBackground(child: child));
@@ -1215,6 +1272,7 @@ class MessengerScreen extends StatefulWidget {
 class _MessengerScreenState extends State<MessengerScreen> {
   late Future<List<Map<String, dynamic>>> conversations;
   Map<String, dynamic>? selected;
+  GlobalKey<_MessagesScreenState> activeConversationKey = GlobalKey<_MessagesScreenState>();
   @override void initState() {super.initState(); reload();}
   void reload() {conversations = widget.api.call('desktop-conversations').then(items);}
   Future<void> openSavedMessages() async {
@@ -1229,36 +1287,36 @@ class _MessengerScreenState extends State<MessengerScreen> {
           'display_name': 'Избранное'},
         'saved': true,
       };
-      if (MediaQuery.sizeOf(context).width < 980) {
-        await _openConversation(savedConversation);
-      } else {
-        setState(() { selected = savedConversation; reload(); });
-      }
+      _openConversation(savedConversation);
+      setState(reload);
     } catch (error) { if (mounted) notify(context, '$error'); }
   }
 
-  Future<void> _openConversation(Map<String, dynamic> conversation) async {
-    if (MediaQuery.sizeOf(context).width >= 980) {
-      setState(() => selected = conversation);
-      return;
-    }
-    await Navigator.push<void>(context, MaterialPageRoute<void>(builder: (_) =>
-      MessagesScreen(widget.api, identifier(conversation['id']),
-        peer: obj(conversation['peer']), me: widget.me)));
-    if (mounted) setState(reload);
+  void _openConversation(Map<String, dynamic> conversation) {
+    setState(() {
+      if (identifier(selected?['id']) != identifier(conversation['id'])) {
+        activeConversationKey = GlobalKey<_MessagesScreenState>();
+      }
+      selected = conversation;
+    });
+  }
+
+  void _closeConversation() {
+    setState(() {selected = null; reload();});
   }
 
   @override
-  Widget build(BuildContext context) {
-    final singlePane = MediaQuery.sizeOf(context).width < 980;
-    final compact = MediaQuery.sizeOf(context).width < 1090;
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, constraints) {
+    final textScale = MediaQuery.textScalerOf(context).scale(16) / 16;
+    final singlePane = constraints.maxWidth < 940 + (textScale - 1).clamp(0, 1) * 240;
+    final compact = constraints.maxWidth < 1090;
     final listPane = Column(children: [
-      Container(height: 75, padding: const EdgeInsets.symmetric(horizontal: 12),
+      Container(constraints: const BoxConstraints(minHeight: 75), padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor))),
         child: Row(children: [
           Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Сообщения', style: Theme.of(context).textTheme.titleLarge),
+              Text('Сообщения', maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 5),
               const Text('Личные переписки', style: TextStyle(color: circleMuted, fontSize: 11)),
             ])),
@@ -1286,7 +1344,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
               return CircleConversationTile(
                 key: ValueKey(identifier(conversation['id'])),
                 api: widget.api, conversation: conversation,
-                active: !singlePane && identifier(selected?['id']) ==
+                active: identifier(selected?['id']) ==
                   identifier(conversation['id']),
                 onTap: () => _openConversation(conversation),
               );
@@ -1295,28 +1353,32 @@ class _MessengerScreenState extends State<MessengerScreen> {
         })),
     ]);
     return Row(children: [
-      if (singlePane) Expanded(child: listPane)
-      else SizedBox(width: compact ? 270 : 325, child: listPane),
+      if (singlePane && selected == null) Expanded(child: listPane),
       if (!singlePane) ...[
+        SizedBox(width: compact ? 270 : 325, child: listPane),
         Container(width: 1, color: Theme.of(context).dividerColor),
+      ],
+      if (!singlePane || selected != null)
         Expanded(child: selected == null
           ? const CircleEmpty(title: 'Выберите диалог',
               description: 'Все ваши разговоры — в одном месте.',
               icon: Icons.forum_outlined)
           : MessagesScreen(widget.api, identifier(selected!['id']),
-              peer: obj(selected!['peer']), me: widget.me, embedded: true)),
-      ],
+              key: activeConversationKey,
+              peer: obj(selected!['peer']), me: widget.me, embedded: true,
+              onBack: singlePane ? _closeConversation : null)),
     ]);
-  }
+  });
 }
 
 class MessagesScreen extends StatefulWidget {
-  const MessagesScreen(this.api, this.id, {super.key, required this.peer, required this.me, this.embedded = false});
+  const MessagesScreen(this.api, this.id, {super.key, required this.peer, required this.me, this.embedded = false, this.onBack});
   final CircleApi api;
   final int id;
   final Map<String, dynamic> peer;
   final Map<String, dynamic> me;
   final bool embedded;
+  final VoidCallback? onBack;
   @override State<MessagesScreen> createState() => _MessagesScreenState();
 }
 class _MessagesScreenState extends State<MessagesScreen> {
@@ -1325,17 +1387,26 @@ class _MessagesScreenState extends State<MessagesScreen> {
   late Future<List<Map<String, dynamic>>> messages;
   bool sending = false;
   bool recording = false;
+  bool startingCall = false;
   Timer? messagePoll;
   bool messagePollBusy = false;
   String lastMessageDigest = '';
-  final recorder = AudioRecorder();
+  int requestGeneration = 0;
+  AudioRecorder? recorder;
+  AudioRecorder get voiceRecorder => recorder ??= AudioRecorder();
   @override void initState() {
     super.initState();
     reload();
     messagePoll = Timer.periodic(const Duration(seconds: 7), (_) => refreshMessagesSilently());
   }
-  @override void didUpdateWidget(covariant MessagesScreen old) {super.didUpdateWidget(old); if (old.id != widget.id) {reply = null; reload();}}
+  @override void didUpdateWidget(covariant MessagesScreen old) {
+    super.didUpdateWidget(old);
+    if (old.id != widget.id || old.api != widget.api) {
+      input.clear(); reply = null; reload();
+    }
+  }
   void reload() {
+    requestGeneration++;
     lastMessageDigest = '';
     messages = widget.api.call('messages', query: {'conversation_id': '${widget.id}'}).then(items);
   }
@@ -1343,16 +1414,20 @@ class _MessagesScreenState extends State<MessagesScreen> {
     if (messagePollBusy || !mounted || !TickerMode.of(context) ||
         WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) return;
     messagePollBusy = true;
+    final generation = requestGeneration;
+    final conversationId = widget.id;
+    final client = widget.api;
     try {
-      final latest = items(await widget.api.call('messages',
-        query: {'conversation_id': '${widget.id}'}));
+      final latest = items(await client.call('messages',
+        query: {'conversation_id': '$conversationId'}));
       final last = latest.isEmpty ? 0 : identifier(latest.last['id']);
       // Edits, reactions and attachments can change without creating a new
       // message ID. Keep a small tail fingerprint rather than re-rendering
       // every time the poll returns an identical batch.
       final tail = latest.length > 5 ? latest.sublist(latest.length - 5) : latest;
-      final digest = '${widget.id}:${latest.length}:$last:${jsonEncode(tail)}';
-      if (mounted && digest != lastMessageDigest) {
+      final digest = '$conversationId:${latest.length}:$last:${jsonEncode(tail)}';
+      if (mounted && generation == requestGeneration &&
+          conversationId == widget.id && client == widget.api && digest != lastMessageDigest) {
         setState(() {lastMessageDigest = digest; messages = Future.value(latest);});
       }
     } catch (_) { // Background polling must never interrupt typing.
@@ -1362,19 +1437,25 @@ class _MessagesScreenState extends State<MessagesScreen> {
     final text = input.text.trim();
     if (text.isEmpty || sending) return;
     setState(() => sending = true);
+    final conversationId = widget.id;
+    final client = widget.api;
     try {
-      await widget.api.call('messages', query: {'conversation_id': '${widget.id}'}, body: {'body': text, 'reply_to_id': reply ?? 0});
+      await client.call('messages', query: {'conversation_id': '$conversationId'}, body: {'body': text, 'reply_to_id': reply ?? 0});
+      if (!mounted || conversationId != widget.id || client != widget.api) return;
       input.clear();
       if (mounted) setState(() {reply = null; reload();});
     } catch (e) {if (mounted) notify(context, '$e');}
     finally {if (mounted) setState(() => sending = false);}
   }
   Future<void> attach({bool voice = false}) async {
+    final conversationId = widget.id;
+    final replyId = reply;
+    final client = widget.api;
     final chosen = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: voice ? ['ogg', 'webm', 'mp3', 'wav', 'm4a'] : ['jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'webm']);
-    if (chosen?.files.single.path == null) return;
+    if (!mounted || conversationId != widget.id || client != widget.api || chosen?.files.single.path == null) return;
     try {
-      await widget.api.upload('message-upload', File(chosen!.files.single.path!), query: {'conversation_id': '${widget.id}'}, fields: {'kind': voice ? 'VOICE' : 'FILE', 'reply_to_id': '${reply ?? 0}'});
-      if (mounted) setState(() {reply = null; reload();});
+      await client.upload('message-upload', File(chosen!.files.single.path!), query: {'conversation_id': '$conversationId'}, fields: {'kind': voice ? 'VOICE' : 'FILE', 'reply_to_id': '${replyId ?? 0}'});
+      if (mounted && conversationId == widget.id && client == widget.api) setState(() {reply = null; reload();});
     } catch (e) {if (mounted) notify(context, '$e');}
   }
   Future<void> react(int id, String value) async {
@@ -1384,23 +1465,33 @@ class _MessagesScreenState extends State<MessagesScreen> {
     } catch (e) {if (mounted) notify(context, '$e');}
   }
   Future<void> startCall({bool video = false}) async {
+    if (startingCall) return;
+    startingCall = true;
+    final client = widget.api;
+    final conversationId = widget.id;
+    final peerName = label(widget.peer);
     try {
-      final started = await widget.api.call('mobile-call-start', body: {'conversation_id': widget.id});
+      final started = await client.call('mobile-call-start', body: {'conversation_id': conversationId});
       final callId = identifier(started['call_id']);
-      if (!mounted || callId < 1) return;
+      if (callId < 1) return;
+      if (!mounted || conversationId != widget.id || client != widget.api) {
+        await client.call('mobile-call-finish', body: {'conversation_id': conversationId, 'call_id': callId});
+        return;
+      }
       await Navigator.push(context, MaterialPageRoute<void>(builder: (_) => CircleLiveRoom(
-        title: 'Звонок · ${label(widget.peer)}', startVideo: video,
-        credentials: () => widget.api.call('mobile-call-token', body: {'conversation_id': widget.id, 'call_id': callId}),
-        onFinish: () => widget.api.call('mobile-call-finish', body: {'conversation_id': widget.id, 'call_id': callId}).then((_) {}),
+        title: 'Звонок · $peerName', startVideo: video,
+        credentials: () => client.call('mobile-call-token', body: {'conversation_id': conversationId, 'call_id': callId}),
+        onFinish: () => client.call('mobile-call-finish', body: {'conversation_id': conversationId, 'call_id': callId}).then((_) {}),
       )));
     } catch (e) {if (mounted) notify(context, 'Звонок недоступен: $e');}
+    finally {startingCall = false;}
   }
   Future<void> toggleRecording() async {
     if (recording) {
       try {
-        final path = await recorder.stop();
+        final path = await voiceRecorder.stop();
         if (mounted) setState(() => recording = false);
-        if (path == null) return;
+        if (!mounted || path == null) return;
         final file = File(path);
         if (await file.exists()) {
           final size = await file.length();
@@ -1416,52 +1507,137 @@ class _MessagesScreenState extends State<MessagesScreen> {
       return;
     }
     try {
-      final allowed = await recorder.hasPermission();
+      final allowed = await voiceRecorder.hasPermission();
+      if (!mounted) return;
       if (!allowed) {if (mounted) notify(context, 'Разрешите доступ к микрофону в настройках Windows'); return;}
       final folder = await getTemporaryDirectory();
+      if (!mounted) return;
       final file = '${folder.path}${Platform.pathSeparator}circle_voice_${DateTime.now().millisecondsSinceEpoch}.wav';
-      await recorder.start(const RecordConfig(encoder: AudioEncoder.wav, numChannels: 1, sampleRate: 16000), path: file);
+      await voiceRecorder.start(const RecordConfig(encoder: AudioEncoder.wav, numChannels: 1, sampleRate: 16000), path: file);
       if (mounted) setState(() => recording = true);
     } catch (e) {if (mounted) notify(context, 'Не удалось включить микрофон: $e');}
   }
   @override void dispose() {
     messagePoll?.cancel();
-    if (recording) {recorder.stop();}
-    recorder.dispose(); input.dispose(); super.dispose();
+    final activeRecorder = recorder;
+    if (activeRecorder != null) {
+      unawaited(_releaseRecorder(activeRecorder, recording));
+    }
+    input.dispose(); super.dispose();
+  }
+  Future<void> _releaseRecorder(AudioRecorder activeRecorder, bool wasRecording) async {
+    try {
+      try {
+        if (wasRecording) await activeRecorder.stop();
+      } finally {await activeRecorder.dispose();}
+    } catch (error, stack) {
+      CircleStartupLog.report('voice recorder cleanup', error, stack);
+    }
   }
   @override Widget build(BuildContext context) {
-    final chat = Column(children: [
-      Container(height: 75, padding: const EdgeInsets.symmetric(horizontal: 20), decoration: BoxDecoration(color: Theme.of(context).cardTheme.color, border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor))), child: Row(children: [
-        CircleUserAvatar(api: widget.api, user: widget.peer, radius: 20), const SizedBox(width: 12),
-        Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label(widget.peer), style: Theme.of(context).textTheme.titleMedium), Text(identifier(widget.peer['id']) == 0 ? 'Только ты видишь эти сообщения' : '@${widget.peer['username'] ?? ''}', style: Theme.of(context).textTheme.bodySmall)])),
-        if (identifier(widget.peer['id']) > 0) ...[
-          IconButton(tooltip: 'Голосовой звонок', onPressed: () => startCall(), icon: const Icon(Icons.call_outlined, color: circleGold)),
-          IconButton(tooltip: 'Видеозвонок', onPressed: () => startCall(video: true), icon: const Icon(Icons.videocam_outlined, color: circleGold)),
-        ],
-        IconButton(tooltip: 'В архив', onPressed: () async {try {await widget.api.call('desktop-dm-archive', body: {'conversation_id': widget.id, 'archived': true}); if (context.mounted) fxNotice(context,'Диалог перемещён в архив');} catch (e) {if (context.mounted) fxNotice(context,e);}}, icon: const Icon(Icons.archive_outlined)),
-        IconButton(tooltip: 'Обновить сообщения', onPressed: () => setState(reload), icon: const Icon(Icons.refresh_rounded)),
-      ])),
+    final chat = LayoutBuilder(builder: (context, constraints) {
+      final textScale = MediaQuery.textScalerOf(context).scale(16) / 16;
+      final compact = constraints.maxWidth < 660 ||
+          (textScale > 1.2 && constraints.maxWidth < 850);
+      return Column(children: [
+      _conversationHeader(compact),
       Expanded(child: FutureBuilder<List<Map<String, dynamic>>>(future: messages, builder: (context, snapshot) {
         if (snapshot.hasError) return CircleEmpty(title: 'Сообщения не загрузились', description: '${snapshot.error}', action: TextButton(onPressed: () => setState(reload), child: const Text('Повторить')));
         if (!snapshot.hasData) return const CircleLoadingState();
         if (snapshot.data!.isEmpty) return const CircleEmpty(title: 'Начните разговор', description: 'Напишите первое сообщение', icon: Icons.chat_bubble_outline);
         final data = snapshot.data!;
-        return ListView.builder(padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
+        return ListView.builder(key: PageStorageKey('dm-messages-${widget.id}'),
+          padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 22, vertical: 20),
           reverse: true, itemCount: data.length, cacheExtent: 320,
           itemBuilder: (context, index) => _messageBubble(data[data.length - 1 - index]));
       })),
-      if (recording) Container(padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7), color: circleRed.withValues(alpha: .15), child: const Row(children: [Icon(Icons.fiber_manual_record, size: 14, color: circleRed), SizedBox(width: 8), Text('Идёт запись — нажмите на микрофон, чтобы отправить', style: TextStyle(color: circleRed, fontSize: 12))])),
+      if (recording) Container(padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7), color: circleRed.withValues(alpha: .15), child: const Row(children: [Icon(Icons.fiber_manual_record, size: 14, color: circleRed), SizedBox(width: 8), Expanded(child: Text('Идёт запись — нажмите на микрофон, чтобы отправить', style: TextStyle(color: circleRed, fontSize: 12)))])),
       if (reply != null) Container(padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6), color: circleGold.withValues(alpha: .08), child: Row(children: [const Icon(Icons.reply, color: circleGold, size: 17), const SizedBox(width: 7), Expanded(child: Text('Ответ на сообщение #$reply', style: const TextStyle(fontSize: 12))), IconButton(onPressed: () => setState(() => reply = null), icon: const Icon(Icons.close, size: 18))])),
-      Container(padding: const EdgeInsets.all(15), decoration: BoxDecoration(color: Theme.of(context).cardTheme.color, border: Border(top: BorderSide(color: Theme.of(context).dividerColor))), child: Row(children: [
-        IconButton(tooltip: 'Прикрепить фото / видео', onPressed: () => attach(), icon: const Icon(Icons.attach_file, color: circleGold)),
-        IconButton(tooltip: recording ? 'Остановить и отправить голосовое сообщение' : 'Записать голосовое сообщение', onPressed: toggleRecording, icon: Icon(recording ? Icons.stop_circle_outlined : Icons.mic_none_outlined, color: recording ? circleRed : circleGold)),
-        IconButton(tooltip: 'Прикрепить аудиофайл', onPressed: () => attach(voice: true), icon: const Icon(Icons.audio_file_outlined, color: circleGold)),
-        const SizedBox(width: 7), Expanded(child: TextField(controller: input, minLines: 1, maxLines: 4, maxLength: 10000, onSubmitted: (_) => send(), decoration: const InputDecoration(hintText: 'Написать сообщение...', counterText: ''))),
-        const SizedBox(width: 9), CircleAccentButton(label: '', icon: Icons.send_rounded, compact: true,
-          busy: sending, onPressed: sending ? null : send),
-      ])),
+      _composer(compact),
     ]);
+    });
     return widget.embedded ? chat : CirclePage(title: label(widget.peer), child: chat);
+  }
+
+  Future<void> _archive() async {
+    try {
+      await widget.api.call('desktop-dm-archive', body: {'conversation_id': widget.id, 'archived': true});
+      if (mounted) fxNotice(context, 'Диалог перемещён в архив');
+    } catch (e) {if (mounted) fxNotice(context, e);}
+  }
+
+  Widget _conversationHeader(bool compact) => Container(
+    constraints: const BoxConstraints(minHeight: 75),
+    padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 20, vertical: 12),
+    decoration: BoxDecoration(color: Theme.of(context).cardTheme.color,
+      border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor))),
+    child: Row(children: [
+      if (widget.onBack != null) ...[
+        IconButton(tooltip: 'К списку диалогов', onPressed: widget.onBack,
+          icon: const Icon(Icons.arrow_back_rounded)),
+        const SizedBox(width: 4),
+      ],
+      CircleUserAvatar(api: widget.api, user: widget.peer, radius: 20),
+      const SizedBox(width: 12),
+      Expanded(child: Column(mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label(widget.peer), maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.titleMedium),
+        Text(identifier(widget.peer['id']) == 0 ? 'Только ты видишь эти сообщения' : '@${widget.peer['username'] ?? ''}',
+          maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.bodySmall),
+      ])),
+      if (compact) PopupMenuButton<String>(
+        tooltip: 'Действия с диалогом', icon: const Icon(Icons.more_horiz_rounded),
+        onSelected: (action) {
+          if (action == 'call') startCall();
+          if (action == 'video') startCall(video: true);
+          if (action == 'archive') _archive();
+          if (action == 'refresh') setState(reload);
+        },
+        itemBuilder: (_) => [
+          if (identifier(widget.peer['id']) > 0) ...[
+            const PopupMenuItem(value: 'call', child: Text('Голосовой звонок')),
+            const PopupMenuItem(value: 'video', child: Text('Видеозвонок')),
+          ],
+          const PopupMenuItem(value: 'archive', child: Text('В архив')),
+          const PopupMenuItem(value: 'refresh', child: Text('Обновить сообщения')),
+        ],
+      ) else ...[
+        if (identifier(widget.peer['id']) > 0) ...[
+          IconButton(tooltip: 'Голосовой звонок', onPressed: () => startCall(), icon: const Icon(Icons.call_outlined, color: circleGold)),
+          IconButton(tooltip: 'Видеозвонок', onPressed: () => startCall(video: true), icon: const Icon(Icons.videocam_outlined, color: circleGold)),
+        ],
+        IconButton(tooltip: 'В архив', onPressed: _archive, icon: const Icon(Icons.archive_outlined)),
+        IconButton(tooltip: 'Обновить сообщения', onPressed: () => setState(reload), icon: const Icon(Icons.refresh_rounded)),
+      ],
+    ]),
+  );
+
+  Widget _composer(bool compact) {
+    final attachments = <Widget>[
+      IconButton(tooltip: 'Прикрепить фото / видео', onPressed: () => attach(), icon: const Icon(Icons.attach_file, color: circleGold)),
+      IconButton(tooltip: recording ? 'Остановить и отправить голосовое сообщение' : 'Записать голосовое сообщение', onPressed: toggleRecording, icon: Icon(recording ? Icons.stop_circle_outlined : Icons.mic_none_outlined, color: recording ? circleRed : circleGold)),
+      IconButton(tooltip: 'Прикрепить аудиофайл', onPressed: () => attach(voice: true), icon: const Icon(Icons.audio_file_outlined, color: circleGold)),
+    ];
+    final field = TextField(controller: input, minLines: 1, maxLines: 4,
+      maxLength: 10000, onSubmitted: (_) => send(),
+      decoration: const InputDecoration(hintText: 'Написать сообщение...', counterText: ''));
+    final submit = Tooltip(message: 'Отправить сообщение', child: CircleAccentButton(
+      label: '', icon: Icons.send_rounded, compact: true,
+      busy: sending, onPressed: sending ? null : send));
+    return Container(padding: EdgeInsets.all(compact ? 10 : 15),
+      decoration: BoxDecoration(color: Theme.of(context).cardTheme.color,
+        border: Border(top: BorderSide(color: Theme.of(context).dividerColor))),
+      child: compact ? Column(mainAxisSize: MainAxisSize.min, children: [
+        Row(children: [Expanded(child: field), const SizedBox(width: 9), submit]),
+        const SizedBox(height: 4),
+        Align(alignment: Alignment.centerLeft, child: Wrap(children: attachments)),
+      ]) : Row(children: [
+        ...attachments, const SizedBox(width: 7), Expanded(child: field),
+        const SizedBox(width: 9), submit,
+      ]),
+    );
   }
   Widget _messageBubble(Map<String, dynamic> message) {
     final mine = identifier(message['user_id']) == identifier(widget.me['id']);

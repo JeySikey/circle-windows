@@ -1,0 +1,12 @@
+Waiting for another flutter command to release the startup lock...
+Analyzing circle-windows...                                     
+
+   info • 'cacheExtent' is deprecated and shouldn't be used. Use scrollCacheExtent instead. This feature was deprecated after v3.41.0-0.0.pre. Try replacing the use of the deprecated member with the replacement • lib/main.dart:729:11 • deprecated_member_use
+   info • 'cacheExtent' is deprecated and shouldn't be used. Use scrollCacheExtent instead. This feature was deprecated after v3.41.0-0.0.pre. Try replacing the use of the deprecated member with the replacement • lib/main.dart:1341:37 • deprecated_member_use
+   info • 'of' is deprecated and shouldn't be used. Use TickerMode.valuesOf to get both enabled and forceFrames. This feature was deprecated after v3.35.0-0.0.pre. Try replacing the use of the deprecated member with the replacement • lib/main.dart:1414:52 • deprecated_member_use
+   info • 'cacheExtent' is deprecated and shouldn't be used. Use scrollCacheExtent instead. This feature was deprecated after v3.41.0-0.0.pre. Try replacing the use of the deprecated member with the replacement • lib/main.dart:1551:50 • deprecated_member_use
+   info • 'cacheExtent' is deprecated and shouldn't be used. Use scrollCacheExtent instead. This feature was deprecated after v3.41.0-0.0.pre. Try replacing the use of the deprecated member with the replacement • lib/moderation_center.dart:89:11 • deprecated_member_use
+   info • 'cacheExtent' is deprecated and shouldn't be used. Use scrollCacheExtent instead. This feature was deprecated after v3.41.0-0.0.pre. Try replacing the use of the deprecated member with the replacement • lib/platform_console.dart:95:19 • deprecated_member_use
+   info • 'cacheExtent' is deprecated and shouldn't be used. Use scrollCacheExtent instead. This feature was deprecated after v3.41.0-0.0.pre. Try replacing the use of the deprecated member with the replacement • lib/social_presence.dart:70:41 • deprecated_member_use
+
+7 issues found. (ran in 15.2s)
