@@ -804,12 +804,36 @@ try {
     }
     if($route==='notifications'){
         mobile_method('GET');if(!feature_enabled('notifications'))mobile_fail('FEATURE_DISABLED',403);
+        // Incremental Windows polling: ascending IDs avoid rescanning old events.
+        // Existing web/mobile clients can still page backwards using `before`.
+        $after=max(0,(int)($_GET['after']??0));
         $before=max(0,(int)($_GET['before']??0));
-        $q=db()->prepare('SELECT n.id,n.kind,n.payload,n.created_at,n.read_at,u.username,p.display_name FROM notifications n LEFT JOIN users u ON u.id=n.actor_id LEFT JOIN user_profiles p ON p.user_id=u.id WHERE n.user_id=? AND (?=0 OR n.id<?) ORDER BY n.id DESC LIMIT 40');
-        $q->execute([$uid,$before,$before]);$items=[];
+        $common='SELECT n.id,n.kind,n.payload,n.created_at,n.read_at,u.username,p.display_name FROM notifications n LEFT JOIN users u ON u.id=n.actor_id LEFT JOIN user_profiles p ON p.user_id=u.id WHERE n.user_id=?';
+        if($after>0){
+            $q=db()->prepare($common.' AND n.id>? ORDER BY n.id ASC LIMIT 40');
+            $q->execute([$uid,$after]);
+        }else{
+            $q=db()->prepare($common.' AND (?=0 OR n.id<?) ORDER BY n.id DESC LIMIT 40');
+            $q->execute([$uid,$before,$before]);
+        }
+        $items=[];
         foreach($q->fetchAll() as $n)$items[]=['id'=>(int)$n['id'],'kind'=>$n['kind'],'payload'=>json_decode((string)($n['payload']??''),true)?:new stdClass(),'created_at'=>$n['created_at'],'read'=>$n['read_at']!==null,'actor_name'=>$n['display_name']?:$n['username']];
         $unread=db()->prepare('SELECT COUNT(*) FROM notifications WHERE user_id=? AND read_at IS NULL');$unread->execute([$uid]);
-        mobile_reply(['ok'=>true,'items'=>$items,'unread'=>(int)$unread->fetchColumn(),'next_before'=>count($items)===40?$items[count($items)-1]['id']:null]);
+        mobile_reply(['ok'=>true,'items'=>$items,'unread'=>(int)$unread->fetchColumn(),
+          'next_before'=>$after===0&&count($items)===40?$items[count($items)-1]['id']:null,
+          'next_after'=>$after>0&&count($items)===40?$items[count($items)-1]['id']:null]);
+    }
+    if($route==='notification-one'){
+        mobile_method('GET');if(!feature_enabled('notifications'))mobile_fail('FEATURE_DISABLED',403);
+        $id=max(0,(int)($_GET['id']??0));if($id<1)mobile_fail('INVALID_NOTIFICATION',422);
+        // This route must never disclose another user's notification payload.
+        $q=db()->prepare('SELECT n.id,n.kind,n.payload,n.created_at,n.read_at,u.username,p.display_name FROM notifications n LEFT JOIN users u ON u.id=n.actor_id LEFT JOIN user_profiles p ON p.user_id=u.id WHERE n.id=? AND n.user_id=? LIMIT 1');
+        $q->execute([$id,$uid]);$n=$q->fetch();if(!$n)mobile_fail('NOT_FOUND',404);
+        mobile_reply(['ok'=>true,'notification'=>[
+            'id'=>(int)$n['id'],'kind'=>$n['kind'],
+            'payload'=>json_decode((string)($n['payload']??''),true)?:new stdClass(),
+            'created_at'=>$n['created_at'],'read'=>$n['read_at']!==null,
+            'actor_name'=>$n['display_name']?:$n['username']]]);
     }
     if($route==='notification-read'){
         mobile_method('POST');$data=mobile_json();$id=max(0,(int)($data['id']??0));
@@ -928,6 +952,25 @@ try {
         $rows=$q->fetchAll();$stats=mobile_post_stats_bulk(array_column($rows,'id'),$uid);
         foreach($rows as $r){$id=(int)$r['id'];$items[]=['id'=>$id,'title'=>$r['title'],'body'=>$r['body'],'created_at'=>$r['created_at'],'scope'=>$r['scope_type'],'has_media'=>!empty($r['media_path']),'media_mime'=>$r['media_mime'],'comments_enabled'=>(bool)$r['comments_enabled'],'can_edit'=>(int)$r['author_id']===$uid,'is_pinned'=>!empty($r['is_pinned']),'stats'=>$stats[$id],'author'=>mobile_profile(['id'=>$r['author_id'],'username'=>$r['username'],'display_name'=>$r['display_name'],'avatar_path'=>$r['avatar_path'],'verified'=>$r['verified']]),'community'=>$r['scope_type']==='GROUP'?['id'=>(int)$r['community_id'],'name'=>$r['community_name'],'verified'=>(bool)$r['community_verified'],'icon_url'=>!empty($r['community_icon'])?'/api/mobile.php?route=community-icon&id='.$r['community_id']:null]:null];}
         mobile_reply(['ok'=>true,'items'=>$items,'next_before'=>count($items)===30?$items[count($items)-1]['id']:null]);
+    }
+    if($route==='post-detail'){
+        mobile_method('GET');if(!feature_enabled('social-feed'))mobile_fail('FEATURE_DISABLED',403);
+        $id=max(0,(int)($_GET['id']??0));if($id<1)mobile_fail('INVALID_POST',422);
+        // Reuse the same membership, friend visibility and ban checks as media/comments.
+        mobile_post_access($id,$uid);
+        $q=db()->prepare('SELECT p.id,p.title,p.body,p.created_at,p.scope_type,p.media_path,p.media_mime,p.comments_enabled,p.is_pinned,p.community_id,u.id AS author_id,u.username,pr.display_name,pr.avatar_path,IF(v.user_id IS NOT NULL,1,0) AS verified,c.name AS community_name,IF(vc.community_id IS NOT NULL,1,0) AS community_verified,c.icon_path AS community_icon FROM social_posts p JOIN users u ON u.id=p.author_id LEFT JOIN user_profiles pr ON pr.user_id=u.id LEFT JOIN circle_verified_profiles v ON v.user_id=u.id LEFT JOIN communities c ON c.id=p.community_id LEFT JOIN circle_verified_communities vc ON vc.community_id=p.community_id WHERE p.id=? LIMIT 1');
+        $q->execute([$id]);$r=$q->fetch();if(!$r)mobile_fail('POST_NOT_FOUND',404);
+        $stats=mobile_post_stats($id,$uid);
+        mobile_reply(['ok'=>true,'post'=>[
+            'id'=>(int)$r['id'],'title'=>(string)$r['title'],'body'=>(string)$r['body'],
+            'created_at'=>$r['created_at'],'scope'=>$r['scope_type'],
+            'has_media'=>!empty($r['media_path']),'media_mime'=>$r['media_mime'],
+            'comments_enabled'=>(bool)$r['comments_enabled'],
+            'can_edit'=>(int)$r['author_id']===$uid,'is_pinned'=>!empty($r['is_pinned']),
+            'stats'=>$stats,
+            'author'=>mobile_profile(['id'=>$r['author_id'],'username'=>$r['username'],'display_name'=>$r['display_name'],'avatar_path'=>$r['avatar_path'],'verified'=>$r['verified']]),
+            'community'=>$r['scope_type']==='GROUP'?['id'=>(int)$r['community_id'],'name'=>$r['community_name'],'verified'=>(bool)$r['community_verified'],'icon_url'=>!empty($r['community_icon'])?'/api/mobile.php?route=community-icon&id='.$r['community_id']:null]:null
+        ]]);
     }
     if($route==='post-media' || $route==='story-media'){
         mobile_method('GET');$id=(int)($_GET['id']??0);if($id<1)mobile_fail('NOT_FOUND',404);
