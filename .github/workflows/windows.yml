@@ -42,10 +42,20 @@ jobs:
         run: Copy-Item 'branding/circle.ico' 'windows/runner/resources/app_icon.ico' -Force
       - name: Resolve Flutter packages
         run: flutter pub get
+      - name: Make native Windows notifications compatible with Visual Studio 2026
+        shell: pwsh
+        run: |
+          python tool/enable_windows_notification_coroutines.py
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to configure Windows native toast plugin compilation' }
+          python tool/enable_windows_notification_coroutines.py --check
+          if ($LASTEXITCODE -ne 0) { throw 'Windows native notification compatibility check failed' }
       - name: Validate project files
         shell: pwsh
         run: |
           python tool/validate_package.py
+          if ($LASTEXITCODE -ne 0) { throw 'Project validation failed' }
+          python tool/test_windows_notification_coroutines.py
+          if ($LASTEXITCODE -ne 0) { throw 'Native notification CMake regression tests failed' }
           if ($LASTEXITCODE -ne 0) { throw 'Project validation failed. Check the required-file list and embedded installer checks above.' }
           python tool/test_release_decision.py
           if ($LASTEXITCODE -ne 0) { throw 'Release-decision tests failed' }
