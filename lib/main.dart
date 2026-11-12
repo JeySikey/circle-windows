@@ -22,12 +22,14 @@ import 'moderation_center.dart';
 import 'command_palette.dart';
 import 'platform_console.dart';
 import 'desktop_workspace.dart';
+import 'notification_models.dart';
+import 'desktop_notifications.dart';
 
 const secure = FlutterSecureStorage();
 const updateManifest = String.fromEnvironment('CIRCLE_UPDATE_URL');
 const updateRepository = String.fromEnvironment('CIRCLE_GITHUB_REPO');
 const updatePublicKey = String.fromEnvironment('CIRCLE_UPDATE_PUBLIC_KEY');
-const appVersion = '0.10.0';
+const appVersion = '0.11.0';
 
 Uri? get circleUpdateUri => updateManifest.trim().isNotEmpty
     ? Uri.tryParse(updateManifest.trim())
@@ -95,8 +97,10 @@ class CircleRoot extends StatefulWidget {
   final bool light;
   @override State<CircleRoot> createState() => _CircleRootState();
 }
-class _CircleRootState extends State<CircleRoot> {
+class _CircleRootState extends State<CircleRoot> with WidgetsBindingObserver {
   CircleApi? api;
+  CircleNotifications? notificationService;
+  int notificationCount = 0;
   Map<String, dynamic> me = {};
   bool loading = true;
   bool collapsed = false;
@@ -114,6 +118,7 @@ class _CircleRootState extends State<CircleRoot> {
   String error = '';
   @override void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     restore();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // Show failures from the previous detached updater instead of silently
@@ -194,6 +199,7 @@ class _CircleRootState extends State<CircleRoot> {
           candidate = null;
           beginIncomingPolling();
           startPresence();
+          startNotifications();
         }
       }
     } catch (error, stack) {
@@ -216,7 +222,7 @@ class _CircleRootState extends State<CircleRoot> {
       candidate.token = '${data['token']}';
       await secure.write(key: 'circle_server', value: server);
       await secure.write(key: 'circle_token', value: candidate.token);
-      if (mounted) {setState(() {api?.dispose(); api = candidate; me = obj(data['user']);}); candidate = null; beginIncomingPolling(); startPresence();}
+      if (mounted) {setState(() {api?.dispose(); api = candidate; me = obj(data['user']);}); candidate = null; beginIncomingPolling(); startPresence(); startNotifications();}
     } catch (e) {if (mounted) setState(() => error = '$e');}
     finally {candidate?.dispose(); if (mounted) setState(() => loading = false);}
   }
@@ -224,6 +230,8 @@ class _CircleRootState extends State<CircleRoot> {
     try {await api?.call('logout', body: {});} catch (_) { /* Local sign-out still applies. */ }
     await secure.delete(key: 'circle_token');
     incomingTimer?.cancel(); incomingTimer = null;
+    notificationService?.dispose(); notificationService = null;
+    notificationCount = 0;
     presenceTimer?.cancel(); presenceTimer = null;
     api?.dispose();
     if (mounted) setState(() {api = null; me = {}; page = 0; workspaceTitle = null; visited..clear()..add(0);});
@@ -276,7 +284,7 @@ class _CircleRootState extends State<CircleRoot> {
       onInvoke: () => openSecondary('Безопасность', DesktopSecurityScreen(client))),
     CircleCommand(title: 'Уведомления', subtitle: 'События из твоего круга',
       icon: Icons.notifications_none,
-      onInvoke: () => openSecondary('Уведомления', NotificationsScreen(client))),
+      onInvoke: () => openSecondary('Уведомления', NotificationsScreen(client, service: notificationService, onOpen: _openCircleNotification))),
     CircleCommand(title: 'Обновления', subtitle: 'Проверка версии и установка',
       icon: Icons.system_update_alt_rounded,
       onInvoke: () => openSecondary('Обновления', const UpdatesScreen())),
@@ -319,6 +327,75 @@ class _CircleRootState extends State<CircleRoot> {
     } catch (_) { // Older servers may not yet have the Desktop API patch.
     }
   }
+  void startNotifications() {
+    final client = api;
+    if (!mounted || client == null) return;
+    notificationService?.dispose();
+    final service = CircleNotifications(api: client, userId: identifier(me['id']),
+      onOpen: _openCircleNotification);
+    notificationService = service;
+    void updateUnread() {
+      if (mounted && identical(notificationService, service) && notificationCount != service.unread.value) {
+        setState(() => notificationCount = service.unread.value);
+      }
+    }
+    service.unread.addListener(updateUnread);
+    unawaited(service.start());
+  }
+
+  Future<void> _openCircleNotification(CircleEvent event) async {
+    if (!mounted || api == null) return;
+    // Bring a minimized Circle window forward before navigating to the target.
+    try {
+      await windowManager.show();
+      await windowManager.focus();
+    } catch (_) {} // Windows settings must not block navigation.
+    if (!mounted || api == null) return;
+    final client = api!;
+    final target = event.target;
+    switch (target.destination) {
+      case CircleNotificationDestination.conversation:
+        openSecondary('Переписка', MessagesScreen(client, target.id,
+          peer: const {'display_name': 'Переписка'}, me: me));
+        return;
+      case CircleNotificationDestination.post:
+        openSecondary('Публикация', CirclePostDetailsScreen(client, target.id));
+        return;
+      case CircleNotificationDestination.friends:
+        openSecondary('Друзья и заявки', FriendsScreen(client, initialTab: 1));
+        return;
+      case CircleNotificationDestination.community:
+        openSecondary('Сообщество', CommunityScreen(client, target.id));
+        return;
+      case CircleNotificationDestination.channel:
+        openSecondary('Канал', ChannelScreen(client, target.id, 'Сообщения сообщества'));
+        return;
+      case CircleNotificationDestination.meeting:
+        openSecondary('Голосовая встреча', CircleLiveRoom(
+          title: 'Голосовая встреча',
+          credentials: () => client.call('desktop-meeting-token', body: {'meeting_id': target.id})));
+        return;
+      case CircleNotificationDestination.cinema:
+        openSecondary('Кинозал', CinemaRoomsScreen(client));
+        return;
+      case CircleNotificationDestination.profile:
+        openSecondary('Профиль', PublicProfile(client, target.id));
+        return;
+      case CircleNotificationDestination.inbox:
+        openSecondary('Уведомления', NotificationsScreen(client,
+          service: notificationService, onOpen: _openCircleNotification));
+        return;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      final service = notificationService;
+      if (service != null) unawaited(service.checkNow());
+    }
+  }
+
   Future<void> pingPresence() async {
     if (presenceBusy || api == null) return;
     presenceBusy = true;
@@ -369,7 +446,7 @@ class _CircleRootState extends State<CircleRoot> {
     } catch (_) { /* Polling must not interrupt navigation when calls are disabled. */ }
     finally {incomingDialog = false; incomingPolling = false;}
   }
-  @override void dispose() {incomingTimer?.cancel(); presenceTimer?.cancel(); api?.dispose(); super.dispose();}
+  @override void dispose() {WidgetsBinding.instance.removeObserver(this); incomingTimer?.cancel(); presenceTimer?.cancel(); notificationService?.dispose(); api?.dispose(); super.dispose();}
   @override Widget build(BuildContext context) {
     if (loading) return const Scaffold(body: CircleAmbientBackground(child: CircleLoadingState(caption: 'Открываем Circle...')));
     if (api == null) return LoginScreen(onLogin: login, error: error);
@@ -502,8 +579,16 @@ class _CircleRootState extends State<CircleRoot> {
       CircleIconAction(tooltip: 'Звонки', icon: Icons.call_outlined,
         onPressed: () => openSecondary('Звонки', CallsScreen(client))),
     ],
-    CircleIconAction(tooltip: 'Уведомления', icon: Icons.notifications_none,
-      onPressed: () => openSecondary('Уведомления', NotificationsScreen(client))),
+    Stack(clipBehavior: Clip.none, children: [
+      CircleIconAction(tooltip: 'Уведомления', icon: Icons.notifications_none,
+        onPressed: () => openSecondary('Уведомления', NotificationsScreen(client, service: notificationService, onOpen: _openCircleNotification))),
+      if (notificationCount > 0) Positioned(right: 0, top: 0, child: IgnorePointer(
+        child: Container(padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+          decoration: BoxDecoration(color: circleGold, borderRadius: BorderRadius.circular(9),
+            boxShadow: [BoxShadow(color: circleGold.withValues(alpha: .35), blurRadius: 10)]),
+          child: Text(notificationCount > 99 ? '99+' : '$notificationCount',
+            style: const TextStyle(fontSize: 10, color: Color(0xFF151515), fontWeight: FontWeight.w800))))),
+    ]),
     if (!compact) CircleIconAction(tooltip: 'Переключить тему',
       onPressed: widget.onTheme,
       icon: widget.light ? Icons.dark_mode_outlined : Icons.light_mode_outlined),
@@ -912,6 +997,36 @@ class PostCard extends StatelessWidget {
   }
 }
 
+/// A real post route for Windows toast activation. Unlike opening the
+/// comments page alone, this also presents the publication and its media.
+class CirclePostDetailsScreen extends StatefulWidget {
+  const CirclePostDetailsScreen(this.api, this.postId, {super.key});
+  final CircleApi api;
+  final int postId;
+  @override State<CirclePostDetailsScreen> createState() => _CirclePostDetailsScreenState();
+}
+class _CirclePostDetailsScreenState extends State<CirclePostDetailsScreen> {
+  late Future<Map<String, dynamic>> result;
+  @override void initState() { super.initState(); refresh(); }
+  void refresh() { result = widget.api.call('post-detail', query: {'id': '${widget.postId}'}); }
+  @override Widget build(BuildContext context) => FutureBuilder<Map<String, dynamic>>(
+    future: result, builder: (context, snapshot) {
+      if (snapshot.hasError) return CircleEmpty(title: 'Публикация недоступна',
+        description: '${snapshot.error}', action: TextButton(
+          onPressed: () => setState(refresh), child: const Text('Повторить')));
+      if (!snapshot.hasData) return const CircleLoadingState(caption: 'Загружаем публикацию...');
+      final post = obj(snapshot.data!['post']);
+      return Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 860),
+        child: ListView(padding: const EdgeInsets.all(24), children: [
+          PostCard(widget.api, post, () => setState(refresh)),
+          const SizedBox(height: 18),
+          CircleAccentButton(label: 'Открыть комментарии', primary: false,
+            onPressed: () => Navigator.push(context, MaterialPageRoute<void>(
+              builder: (_) => CommentsScreen(widget.api, widget.postId)))),
+        ])));
+    });
+}
+
 class CommentsScreen extends StatefulWidget {
   const CommentsScreen(this.api, this.postId, {super.key});
   final CircleApi api;
@@ -1125,12 +1240,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
 /// Native friends, requests and people search. These routes ship in the
 /// companion Mobile API 5.2.3 compatibility patch, not in the old server.
 class FriendsScreen extends StatefulWidget {
-  const FriendsScreen(this.api, {super.key});
+  const FriendsScreen(this.api, {super.key, this.initialTab = 0});
   final CircleApi api;
+  final int initialTab;
   @override State<FriendsScreen> createState() => _FriendsScreenState();
 }
 class _FriendsScreenState extends State<FriendsScreen> {
-  int tab = 0;
+  late int tab;
+  @override void initState() {super.initState(); tab = widget.initialTab;}
   int revision = 0;
   final search = TextEditingController();
   Timer? searchDebounce;
@@ -1824,61 +1941,213 @@ class _ChannelScreenState extends State<ChannelScreen> {
 }
 
 class NotificationsScreen extends StatefulWidget {
-  const NotificationsScreen(this.api, {super.key});
+  const NotificationsScreen(this.api, {super.key, this.service, this.onOpen});
   final CircleApi api;
+  final CircleNotifications? service;
+  final Future<void> Function(CircleEvent)? onOpen;
   @override State<NotificationsScreen> createState() => _NotificationsScreenState();
 }
+
 class _NotificationsScreenState extends State<NotificationsScreen> {
-  int reload = 0;
-  Future<void> read(int id) async {
-    try {await widget.api.call('notification-read', body: {'id': id}); if (mounted) setState(() => reload++);}
-    catch (e) {if (mounted) notify(context, '$e');}
+  final List<CircleEvent> events = [];
+  String filter = 'all';
+  bool busy = false;
+  bool hasMore = true;
+  int unread = 0;
+  int? before;
+  @override void initState() {super.initState(); unawaited(load());}
+
+  Future<void> load({bool more = false}) async {
+    if (busy) return;
+    setState(() => busy = true);
+    try {
+      final response = await widget.api.call('notifications',
+        query: more && before != null ? {'before': '$before'} : {});
+      if (!mounted) return;
+      final rows = items(response).map(CircleEvent.fromJson).toList();
+      setState(() {
+        if (!more) events.clear();
+        final ids = events.map((e) => e.id).toSet();
+        events.addAll(rows.where((e) => ids.add(e.id)));
+        unread = identifier(response['unread']);
+        before = response['next_before'] == null ? null : identifier(response['next_before']);
+        hasMore = before != null && before! > 0;
+      });
+    } catch (error) {
+      if (mounted) notify(context, 'Не удалось получить уведомления: $error');
+    } finally {if (mounted) setState(() => busy = false);}
   }
-  @override Widget build(BuildContext context) => Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 900), child: Column(children: [
-    Padding(padding: const EdgeInsets.fromLTRB(24, 26, 24, 14), child: CircleSection(title: 'Уведомления', subtitle: 'Важное из твоего круга', trailing: Wrap(spacing: 8, children: [
-      OutlinedButton.icon(onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => NotificationSettingsScreen(widget.api))), icon: const Icon(Icons.tune, size: 17), label: const Text('Настроить')),
-      FilledButton.icon(onPressed: () => read(0), icon: const Icon(Icons.done_all, size: 17), label: const Text('Прочитать все')),
-    ]))),
-    Expanded(child: ApiList(key: ValueKey(reload), api: widget.api, route: 'notifications', emptyTitle: 'Новых уведомлений нет', itemBuilder: (context, n, refresh) {
-      final unread = n['read'] != true;
-      return CircleSurface(accent: unread, padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 13), child: Row(children: [
-        Container(padding: const EdgeInsets.all(11), decoration: BoxDecoration(color: circleGold.withValues(alpha: .1), borderRadius: BorderRadius.circular(12)), child: const Icon(Icons.notifications_none, color: circleGold)), const SizedBox(width: 13),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('${n['actor_name'] ?? 'Circle'}', style: Theme.of(context).textTheme.titleMedium), const SizedBox(height: 4), Text(_notificationLabel('${n['kind'] ?? ''}'), style: const TextStyle(color: circleMuted)), const SizedBox(height: 6), Text(circleDate(n['created_at']), style: Theme.of(context).textTheme.bodySmall)])),
-        if (unread) TextButton(onPressed: () => read(identifier(n['id'])), child: const Text('Прочитано')),
-      ]));
-    })),
-  ])));
-  String _notificationLabel(String key) => switch (key) {
-    'dm_message' => 'Новое личное сообщение', 'dm_call' => 'Входящий звонок',
-    'friend_request' => 'Запрос в друзья', 'friend_accepted' => 'Новый друг',
-    'post_comment' => 'Новый комментарий', 'post_like' => 'Реакция на публикацию',
-    _ => key.replaceAll('_', ' '),
-  };
+
+  Future<void> markRead(int id) async {
+    try {
+      if (id == 0 && widget.service != null) {
+        await widget.service!.markAllRead();
+      } else {
+        await widget.api.call('notification-read', body: {'id': id});
+      }
+      if (mounted) await load();
+      final service = widget.service;
+      if (service != null) unawaited(service.checkNow());
+    } catch (error) {if (mounted) notify(context, '$error');}
+  }
+
+  Future<void> open(CircleEvent event) async {
+    if (!event.read) {
+      try { await widget.api.call('notification-read', body: {'id': event.id}); }
+      catch (_) { /* The underlying target still opens. */ }
+    }
+    if (!mounted) return;
+    final service = widget.service;
+    if (service != null) unawaited(service.checkNow());
+    if (widget.onOpen != null) await widget.onOpen!(event);
+    if (mounted) unawaited(load());
+  }
+
+  @override Widget build(BuildContext context) {
+    const filters = <String, String>{
+      'all': 'Все', 'unread': 'Непрочитанные', 'messages': 'Сообщения',
+      'friends': 'Друзья', 'posts': 'Публикации',
+      'communities': 'Сообщества', 'system': 'Система',
+    };
+    final filtered = events.where((event) => switch(filter) {
+      'all' => true,
+      'unread' => !event.read,
+      'system' => event.category == 'system' || event.category == 'security_alerts',
+      _ => event.category == filter,
+    }).toList();
+    return Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1080),
+      child: Column(children: [
+        Padding(padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
+          child: CircleSection(title: 'Уведомления',
+            subtitle: '$unread непрочитанных · события твоего круга',
+            trailing: Wrap(spacing: 8, runSpacing: 8, children: [
+              OutlinedButton.icon(onPressed: () => Navigator.push(context,
+                MaterialPageRoute<void>(builder: (_) => NotificationSettingsScreen(
+                  widget.api, service: widget.service))),
+                icon: const Icon(Icons.tune_rounded, size: 17), label: const Text('Настроить')),
+              FilledButton.icon(onPressed: busy || unread == 0 ? null : () => markRead(0),
+                icon: const Icon(Icons.done_all_rounded, size: 17),
+                label: const Text('Прочитать все')),
+            ]))),
+        Padding(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+          child: Align(alignment: Alignment.centerLeft, child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal, child: Row(children: [
+              for (final item in filters.entries) Padding(padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(label: Text(item.value), selected: filter == item.key,
+                  onSelected: (_) => setState(() => filter = item.key))),
+            ])))),
+        Expanded(child: RefreshIndicator(onRefresh: () => load(), child: ListView.builder(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+          cacheExtent: 280,
+          itemCount: filtered.length + 1,
+          itemBuilder: (context, index) {
+            if (index >= filtered.length) {
+              if (busy && events.isEmpty) return const Padding(padding: EdgeInsets.all(40),
+                child: Center(child: CircularProgressIndicator()));
+              if (hasMore) return Center(child: Padding(padding: const EdgeInsets.all(12),
+                child: OutlinedButton.icon(onPressed: busy ? null : () => load(more: true),
+                  icon: const Icon(Icons.expand_more), label: const Text('Загрузить ещё'))));
+              return const Padding(padding: EdgeInsets.all(24),
+                child: Center(child: Text('Больше событий нет', style: TextStyle(color: circleMuted))));
+            }
+            final event = filtered[index];
+            final selected = !event.read;
+            final leading = switch(event.category) {
+              'messages' => Icons.chat_bubble_outline_rounded,
+              'friends' => Icons.people_outline_rounded,
+              'posts' => Icons.favorite_border_rounded,
+              'communities' => Icons.groups_2_outlined,
+              'security_alerts' => Icons.shield_outlined,
+              _ => Icons.notifications_outlined,
+            };
+            return Padding(padding: const EdgeInsets.only(bottom: 10), child:
+              CircleSurface(interactive: true, accent: selected, padding: EdgeInsets.zero,
+                child: InkWell(borderRadius: BorderRadius.circular(16),
+                  onTap: () => open(event),
+                  child: Padding(padding: const EdgeInsets.all(15), child: Row(children: [
+                    Container(padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: circleGold.withValues(alpha: selected ? .18 : .07),
+                        borderRadius: BorderRadius.circular(13)),
+                      child: Icon(leading, color: circleGoldBright, size: 21)),
+                    const SizedBox(width: 15),
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Row(children: [Expanded(child: Text(event.heading,
+                        style: Theme.of(context).textTheme.titleMedium)),
+                        if (selected) const Icon(Icons.circle, size: 8, color: circleGold)]),
+                      const SizedBox(height: 4),
+                      Text(event.summary, maxLines: 2, overflow: TextOverflow.ellipsis),
+                      const SizedBox(height: 6),
+                      Text(circleDate(event.createdAt), style: Theme.of(context).textTheme.bodySmall),
+                    ])),
+                    const SizedBox(width: 9),
+                    if (selected) IconButton(tooltip: 'Прочитано',
+                      icon: const Icon(Icons.done_rounded),
+                      onPressed: () => markRead(event.id)),
+                    const Icon(Icons.chevron_right_rounded, color: circleGold),
+                  ])))));
+          },
+        ))),
+      ])));
+  }
 }
 
 class NotificationSettingsScreen extends StatefulWidget {
-  const NotificationSettingsScreen(this.api, {super.key});
+  const NotificationSettingsScreen(this.api, {super.key, this.service});
   final CircleApi api;
+  final CircleNotifications? service;
   @override State<NotificationSettingsScreen> createState() => _NotificationSettingsScreenState();
 }
 class _NotificationSettingsScreenState extends State<NotificationSettingsScreen> {
   late Future<Map<String, dynamic>> future;
   @override void initState() {super.initState(); reload();}
   void reload() {future = widget.api.call('notification-settings');}
-  Future<void> change(String key, bool value, Map<String, dynamic> settings) async {
-    try {await widget.api.call('notification-settings', body: {key: value}); if (mounted) setState(reload);}
-    catch (e) {if (mounted) notify(context, '$e');}
+  Future<void> change(String key, bool value) async {
+    try {
+      await widget.api.call('notification-settings', body: {key: value});
+      if (mounted) setState(reload);
+    } catch (e) {if (mounted) notify(context, '$e');}
   }
-  @override Widget build(BuildContext context) => CirclePage(title: 'Настройки уведомлений', child: FutureBuilder<Map<String, dynamic>>(future: future, builder: (context, snapshot) {
-    if (snapshot.hasError) return CircleEmpty(title: 'Не удалось получить настройки', description: '${snapshot.error}');
-    if (!snapshot.hasData) return const CircleLoadingState();
-    final settings = obj(snapshot.data!['settings']);
-    const captions = {'messages': 'Личные сообщения', 'friends': 'Друзья и заявки', 'communities': 'Сообщества', 'security_alerts': 'Безопасность аккаунта', 'system': 'Системные уведомления', 'push_enabled': 'Push-уведомления'};
-    return Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 700), child: ListView(padding: const EdgeInsets.all(22), children: [
-      CircleSurface(child: Column(children: [for (final item in captions.entries) SwitchListTile(title: Text(item.value), subtitle: item.key == 'push_enabled' ? const Text('Windows push не подключён к серверному API') : null, activeThumbColor: circleGold,
-        value: settings[item.key] == true, onChanged: item.key == 'push_enabled' && snapshot.data!['push_available'] != true ? null : (value) => change(item.key, value, settings))])),
-    ])));
-  }));
+  @override Widget build(BuildContext context) => CirclePage(title: 'Настройки уведомлений',
+    child: FutureBuilder<Map<String, dynamic>>(future: future, builder: (context, snapshot) {
+      if (snapshot.hasError) return CircleEmpty(title: 'Не удалось получить настройки',
+        description: '${snapshot.error}');
+      if (!snapshot.hasData) return const CircleLoadingState();
+      final settings = obj(snapshot.data!['settings']);
+      const captions = {'messages': 'Личные сообщения', 'friends': 'Друзья и заявки',
+        'communities': 'Сообщества и публикации', 'security_alerts': 'Безопасность аккаунта',
+        'system': 'Системные уведомления', 'push_enabled': 'Мобильные push-уведомления'};
+      return Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 780),
+        child: ListView(padding: const EdgeInsets.all(22), children: [
+          if (widget.service != null) CircleSurface(accent: true, child: Column(children: [
+            const ListTile(title: Text('Уведомления Windows'),
+              subtitle: Text('Всплывающие окна Windows со ссылкой на событие. Работают, пока Circle запущен, в том числе свёрнутым.')),
+            ValueListenableBuilder<bool>(valueListenable: widget.service!.enabled,
+              builder: (context, value, _) => SwitchListTile(
+                title: const Text('Всплывающие уведомления'),
+                value: value, activeThumbColor: circleGold,
+                onChanged: widget.service!.setEnabled)),
+            ValueListenableBuilder<bool>(valueListenable: widget.service!.soundEnabled,
+              builder: (context, value, _) => SwitchListTile(
+                title: const Text('Звук Windows'),
+                subtitle: const Text('Уважает настройки звука и режима «Не беспокоить» Windows'),
+                value: value, activeThumbColor: circleGold,
+                onChanged: widget.service!.setSound)),
+          ])),
+          const SizedBox(height: 14),
+          CircleSurface(child: Column(children: [
+            const ListTile(title: Text('Категории уведомлений'),
+              subtitle: Text('Синхронизируются с настройками Circle на сайте')),
+            for (final item in captions.entries) SwitchListTile(
+              title: Text(item.value),
+              subtitle: item.key == 'push_enabled'
+                ? const Text('Отдельный механизм мобильных push, не связан с Windows') : null,
+              activeThumbColor: circleGold,
+              value: settings[item.key] == true,
+              onChanged: item.key == 'push_enabled' && snapshot.data!['push_available'] != true
+                ? null : (value) => change(item.key, value)),
+          ])),
+        ])));
+    }));
 }
 
 class CallsScreen extends StatelessWidget {

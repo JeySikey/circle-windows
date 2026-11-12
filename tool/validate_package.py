@@ -9,13 +9,13 @@ php = root / 'server_patch' / 'api' / 'mobile.php'
 required = [
     'pubspec.yaml', 'lib/main.dart', 'lib/api.dart', 'lib/design.dart', 'lib/desktop_workspace.dart', 'lib/desktop_features.dart', 'lib/desktop_discovery.dart',
     'lib/live_room.dart', 'lib/media_view.dart', 'lib/social_presence.dart', 'lib/updater.dart',
-    'lib/startup_log.dart', 'lib/command_palette.dart', 'lib/moderation_center.dart', 'lib/platform_console.dart', 'tool/package_windows.ps1', 'tool/verify_installer.ps1', 'tool/diagnose_windows.ps1',
+    'lib/startup_log.dart', 'lib/notification_models.dart', 'lib/desktop_notifications.dart', 'lib/command_palette.dart', 'lib/moderation_center.dart', 'lib/platform_console.dart', 'tool/package_windows.ps1', 'tool/verify_installer.ps1', 'tool/diagnose_windows.ps1',
     'tool/apply_update.ps1', 'tool/test_update_apply.ps1', 'tool/build_payload.py', 'tool/release_keys.py',
     'tool/self_test_update.py', 'tool/test_bootstrap_keys.py', 'tool/bootstrap_github_keys.py',
     'tool/validate_package.py', 'tool/sign_release.py', 'tool/package_windows.ps1',
     'tool/verify_installer.ps1', 'tool/diagnose_windows.ps1', 'tool/Circle-Diagnostics.cmd',
-    'tool/test_desktop_parity.py', 'tool/test_moderation_contract.py', 'test/desktop_command_moderation_test.dart', 'test/design_motion_test.dart', 'test/desktop_workspace_test.dart', 'test/design_keyboard_test.dart', 'test/messenger_layout_test.dart', 'test/desktop_shell_test.dart',
-    'docs/GITHUB-AUTO-UPDATE.md', 'server_patch/api/mobile.php', 'server_patch/api/desktop_ext.php', 'tool/check_api_contract.py', 'tool/check_desktop_contract.py',
+    'tool/test_desktop_parity.py', 'tool/test_moderation_contract.py', 'tool/test_notifications_contract.py', 'test/desktop_command_moderation_test.dart', 'test/design_motion_test.dart', 'test/desktop_workspace_test.dart', 'test/design_keyboard_test.dart', 'test/messenger_layout_test.dart', 'test/desktop_shell_test.dart',
+    'test/notification_models_test.dart', 'test/notification_delivery_test.dart', 'docs/NOTIFICATIONS-0.11.0.md', 'docs/WEB-PARITY-0.11.0.md', 'docs/GITHUB-AUTO-UPDATE.md', 'server_patch/api/mobile.php', 'server_patch/api/desktop_ext.php', 'tool/check_api_contract.py', 'tool/check_desktop_contract.py',
     '.github/workflows/windows.yml', '.github/workflows/bootstrap-signing.yml', 'installer/Circle.iss',
     'assets/circle-mark.png', 'branding/circle.ico', 'README.md',
 ]
@@ -23,7 +23,7 @@ for rel in required:
     if not (root / rel).is_file():
         raise SystemExit(f'Missing required file: {rel}')
 
-version = '0.10.0'
+version = '0.11.0'
 for rel in ['pubspec.yaml', 'lib/main.dart', 'installer/Circle.iss', 'build-installer.ps1', '.github/workflows/windows.yml']:
     if version not in (root / rel).read_text(encoding='utf-8'):
         raise SystemExit(f'Wrong version: {rel}')

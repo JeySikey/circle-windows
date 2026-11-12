@@ -1,5 +1,5 @@
 name: circle_windows
-version: 0.10.0+19
+version: 0.11.0+20
 description: Circle Windows native desktop client with secure in-place GitHub auto-updates
 publish_to: none
 environment:
@@ -20,6 +20,7 @@ dependencies:
   window_manager: ^0.4.3
   cryptography: ^2.7.0
   crypto: ^3.0.6
+  flutter_desktop_notifications: ^1.1.2
 dev_dependencies:
   flutter_test:
     sdk: flutter
