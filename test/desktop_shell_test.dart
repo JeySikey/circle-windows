@@ -46,6 +46,20 @@ class _ShellFixture {
             payload = {'status': 'ONLINE'};
           case 'desktop-presence-ping':
             payload = {};
+          // Circle 0.11 initializes native notifications after session restore.
+          // These are expected authenticated requests, not unknown API calls.
+          case 'notification-settings':
+            payload = {
+              'settings': <String, bool>{
+                'messages': true,
+                'friends': true,
+                'communities': true,
+                'posts': true,
+                'calls': true,
+              },
+            };
+          case 'notifications':
+            payload = {'items': <dynamic>[], 'unread': 0};
           case 'mobile-call-poll':
             payload = {'call': null};
           case 'feed':
