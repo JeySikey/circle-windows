@@ -23,6 +23,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.47.9'
           cache: true
       - name: Require signing key before building an update-enabled client
         shell: pwsh
@@ -100,17 +101,17 @@ jobs:
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
-          & $iscc '/DAppVersion=0.9.0' 'installer\Circle.iss'
+          & $iscc '/DAppVersion=0.10.0' 'installer\Circle.iss'
           if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed' }
       - name: Build ZIP for silent in-place upgrades (no installer)
-        run: python tool/build_payload.py --version 0.9.0
+        run: python tool/build_payload.py --version 0.10.0
       - name: Verify signed payload ZIP passes updater safety rules
         shell: pwsh
         run: |
           $zip = Get-ChildItem -Path dist -Filter '*_Payload.zip' | Select-Object -First 1
           if (-not $zip) {throw 'Missing update ZIP'}
           $digest = (Get-FileHash -LiteralPath $zip.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tool/apply_update.ps1 -Archive $zip.FullName -ExpectedSha256 $digest -ExePath "$pwd\build\windows\x64\runner\Release\circle_windows.exe" -ParentPid 999999 -Version 0.9.0 -ValidateOnly
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tool/apply_update.ps1 -Archive $zip.FullName -ExpectedSha256 $digest -ExePath "$pwd\build\windows\x64\runner\Release\circle_windows.exe" -ParentPid 999999 -Version 0.10.0 -ValidateOnly
           if ($LASTEXITCODE -ne 0) {throw 'Updater validation failed'}
       - name: Check updater parses in Windows PowerShell 5.1
         shell: pwsh
@@ -165,6 +166,7 @@ jobs:
           retention-days: 30
 
       - name: Decide whether a new stable GitHub Release is needed
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')
         id: release
         shell: pwsh
         env:
@@ -172,7 +174,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_REF: ${{ github.ref }}
         run: |
-          python tool/release_decision.py --version 0.9.0
+          python tool/release_decision.py --version 0.10.0
           if ($LASTEXITCODE -ne 0) { throw 'Release decision failed; inspect the error (private repo, existing tag or version conflict)' }
 
       - name: Publish signed Release for installed-app auto-updates
@@ -193,9 +195,9 @@ jobs:
             $installer = Get-ChildItem dist/*_Setup.exe | Select-Object -First 1
             if (!$payload -or !$installer) {throw 'Release assets absent'}
             $assetUrl = "https://github.com/$env:CIRCLE_REPOSITORY/releases/download/$env:CIRCLE_RELEASE_TAG/$($payload.Name)"
-            python tool/sign_release.py --private-key $keyFile --package $payload.FullName --version 0.9.0 --url $assetUrl --output update-manifest.json
+            python tool/sign_release.py --private-key $keyFile --package $payload.FullName --version 0.10.0 --url $assetUrl --output update-manifest.json
             if ($LASTEXITCODE -ne 0) {throw 'Signature step failed'}
-            gh release create $env:CIRCLE_RELEASE_TAG $installer.FullName $payload.FullName 'update-manifest.json' --target $env:CIRCLE_COMMIT --title 'Circle Windows 0.9.0' --notes 'Stable native Windows update; signed runtime ZIP; no reinstallation required.' --latest
+            gh release create $env:CIRCLE_RELEASE_TAG $installer.FullName $payload.FullName 'update-manifest.json' --target $env:CIRCLE_COMMIT --title 'Circle Windows 0.10.0' --notes 'Stable native Windows update; signed runtime ZIP; no reinstallation required.' --latest
             if ($LASTEXITCODE -ne 0) {throw 'GitHub Release publishing failed'}
             Write-Host "Published $env:CIRCLE_RELEASE_TAG. App update feed: https://github.com/$env:CIRCLE_REPOSITORY/releases/latest/download/update-manifest.json"
           } finally {
